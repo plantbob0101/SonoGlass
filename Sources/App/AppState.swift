@@ -288,10 +288,14 @@ final class AppState {
                     linkPrompt = nil
                     return "linked"
                 } catch let error as SMAPIError {
-                    if case .notLinkedRetry = error { continue }
-                    linkInProgress = false
-                    linkPrompt = nil
-                    return "\(error)"
+                    switch error {
+                    case .notLinkedRetry, .transport:
+                        continue   // keep polling through network blips
+                    default:
+                        linkInProgress = false
+                        linkPrompt = nil
+                        return "\(error)"
+                    }
                 }
             }
             linkInProgress = false

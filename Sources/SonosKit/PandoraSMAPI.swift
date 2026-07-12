@@ -28,6 +28,15 @@ public struct SMAPIDeviceLink: Sendable {
     public let showLinkCode: Bool
     public let householdId: String
     public let deviceId: String
+
+    public init(regUrl: String, linkCode: String, showLinkCode: Bool,
+                householdId: String, deviceId: String) {
+        self.regUrl = regUrl
+        self.linkCode = linkCode
+        self.showLinkCode = showLinkCode
+        self.householdId = householdId
+        self.deviceId = deviceId
+    }
 }
 
 public enum SMAPIError: Error, Sendable, CustomStringConvertible {
