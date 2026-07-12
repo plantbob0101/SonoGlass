@@ -46,7 +46,8 @@ struct Probe {
                 print("Open: \(link.regUrl)")
                 if link.showLinkCode { print("Enter code: \(link.linkCode)") }
                 print("Polling for authorization (Ctrl-C to stop)…\n")
-                for attempt in 1...60 {
+                let attempts = args.count > 3 ? (Int(args[3]) ?? 60) : 60
+                for attempt in 1...attempts {
                     try? await Task.sleep(nanoseconds: 5_000_000_000)
                     do {
                         let creds = try await smapi.getDeviceAuthToken(link: link)
@@ -57,6 +58,13 @@ struct Probe {
                         return
                     } catch SMAPIError.notLinkedRetry {
                         print("  [\(attempt)] not yet authorized…")
+                    } catch let error as SMAPIError {
+                        if case .transport = error {
+                            print("  [\(attempt)] transient: \(error) — retrying")
+                            continue
+                        }
+                        print("❌ \(error)")
+                        return
                     } catch {
                         print("❌ \(error)")
                         return
@@ -65,6 +73,23 @@ struct Probe {
                 print("timed out waiting for authorization")
             } catch {
                 print("getAppLink failed: \(error)")
+            }
+
+        case "redeem":
+            // pandora-probe redeem <ip> <linkCode> — collect the token for an
+            // already-authorized link code.
+            guard args.count > 3 else { print("usage: redeem <ip> <linkCode>"); return }
+            let link = SMAPIDeviceLink(regUrl: "", linkCode: args[3], showLinkCode: false,
+                                       householdId: household, deviceId: deviceId)
+            do {
+                let creds = try await smapi.getDeviceAuthToken(link: link)
+                let data = try JSONEncoder().encode(creds)
+                try data.write(to: tokenPath)
+                try? PandoraSMAPIKeychain.save(data)
+                print("✅ LINKED. token saved to \(tokenPath.path) and Keychain")
+                print("authToken=\(creds.authToken.prefix(16))… key=\(creds.privateKey.prefix(8))…")
+            } catch {
+                print("❌ redeem failed: \(error)")
             }
 
         case "rate":
