@@ -134,6 +134,46 @@ final class AppState {
         NSWorkspace.shared.open(url)
     }
 
+    /// For a Pandora track: search Apple Music for the same song and open the
+    /// top match in the Music app — the library-building funnel.
+    func findCurrentInAppleMusic() {
+        let title = nowPlaying.title
+        let artist = nowPlaying.artist
+        guard !title.isEmpty else { return }
+        Task {
+            do {
+                if let id = try await appleMusic.findSong(title: title, artist: artist),
+                   let url = URL(string: "music://music.apple.com/us/song/\(id)") {
+                    NSWorkspace.shared.open(url)
+                } else {
+                    showToast("No Apple Music match for “\(title)”")
+                }
+            } catch {
+                showToast("\(error)")
+            }
+        }
+    }
+
+    /// Opens the current Pandora track's backstage page on pandora.com
+    /// (collect it, browse similar artists…). Falls back to a search page.
+    func openPandoraSongPage() {
+        let title = nowPlaying.title
+        let artist = nowPlaying.artist
+        let ref = currentTrackRef
+        Task {
+            if pandoraConfigured, case let .modern(trackId, _)? = ref,
+               let url = try? await pandora.trackPageURL(pandoraId: trackId) {
+                NSWorkspace.shared.open(url)
+                return
+            }
+            let query = "\(title) \(artist)"
+                .addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+            if let url = URL(string: "https://www.pandora.com/search/\(query)/tracks") {
+                NSWorkspace.shared.open(url)
+            }
+        }
+    }
+
     /// Fetch the server-side favorite state when an Apple Music track appears.
     private func refreshFavoriteState() {
         guard let songID = currentAppleMusicSongID, favoriteCache[songID] == nil else { return }

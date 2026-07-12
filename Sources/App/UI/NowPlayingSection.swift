@@ -85,7 +85,7 @@ struct ThumbsRow: View {
         let thumb = appState.currentThumb
         let enabled = appState.thumbsAvailable
         let hint = "Thumbs need a playing Pandora track"
-        HStack(spacing: 44) {
+        HStack(spacing: 30) {
             Button {
                 appState.thumbsDown()
             } label: {
@@ -97,6 +97,7 @@ struct ThumbsRow: View {
             .disabled(!enabled)
             .help(enabled ? "Thumbs down (skips track)" : hint)
             .accessibilityLabel("Thumbs down")
+            .opacity(enabled ? 1 : 0.5)
 
             Button {
                 appState.thumbsUp()
@@ -109,8 +110,33 @@ struct ThumbsRow: View {
             .disabled(!enabled)
             .help(enabled ? "Thumbs up" : hint)
             .accessibilityLabel("Thumbs up")
+            .opacity(enabled ? 1 : 0.5)
+
+            // The "I *really* like this" escape hatches.
+            VStack(spacing: 6) {
+                Button {
+                    appState.findCurrentInAppleMusic()
+                } label: {
+                    Image(systemName: "arrow.up.forward.app")
+                        .font(.system(size: 13))
+                        .frame(width: 26, height: 18)
+                }
+                .buttonStyle(.borderless)
+                .help("Find this song in Apple Music")
+                .accessibilityLabel("Find in Apple Music")
+
+                Button {
+                    appState.openPandoraSongPage()
+                } label: {
+                    Image(systemName: "globe")
+                        .font(.system(size: 13))
+                        .frame(width: 26, height: 18)
+                }
+                .buttonStyle(.borderless)
+                .help("Open this song on pandora.com")
+                .accessibilityLabel("Open on pandora.com")
+            }
         }
-        .opacity(enabled ? 1 : 0.5)
     }
 }
 
