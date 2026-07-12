@@ -10,11 +10,18 @@ cd "$(dirname "$0")/.."
 xcodegen
 
 ARGS=(-project SonoGlass.xcodeproj -scheme SonoGlass -configuration Release
-      -derivedDataPath .build/xcode -allowProvisioningUpdates build)
+      -derivedDataPath .build/xcode
+      -allowProvisioningUpdates -allowProvisioningDeviceRegistration build)
 if [[ -n "${TEAM:-}" ]]; then
   ARGS+=("DEVELOPMENT_TEAM=$TEAM")
 fi
-xcodebuild "${ARGS[@]}" | grep -E "Signing Identity|error|BUILD" || true
+LOG=$(mktemp)
+if ! xcodebuild "${ARGS[@]}" > "$LOG" 2>&1; then
+  grep -E "error" "$LOG" | head -10
+  echo "BUILD FAILED"
+  exit 1
+fi
+grep -E "Signing Identity|BUILD" "$LOG" | head -3
 
 APP=".build/xcode/Build/Products/Release/SonoGlass.app"
 [[ -d "$APP" ]] || { echo "build failed"; exit 1; }
