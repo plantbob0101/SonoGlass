@@ -78,6 +78,34 @@ struct Probe {
                 print("getAppLink failed: \(error)")
             }
 
+        case "count":
+            // Totals thumbs across every station (authoritative per-station store).
+            guard let creds = PandoraKeychain.load() else {
+                print("FAIL: no Pandora credentials in Keychain")
+                return
+            }
+            let tuner = PandoraClient()
+            await tuner.setCredentials(username: creds.username, password: creds.password)
+            do {
+                let stations = try await tuner.stationList()
+                print("scanning \(stations.count) stations…")
+                var totalUp = 0, totalDown = 0
+                var perStation: [(String, Int, Int)] = []
+                for station in stations {
+                    let ups = (try? await tuner.stationThumbs(stationToken: station.stationToken, positive: true))?.count ?? 0
+                    let downs = (try? await tuner.stationThumbs(stationToken: station.stationToken, positive: false))?.count ?? 0
+                    totalUp += ups
+                    totalDown += downs
+                    if ups + downs > 0 { perStation.append((station.stationName, ups, downs)) }
+                }
+                print("TOTAL 👍 \(totalUp)   👎 \(totalDown)   (across \(perStation.count) stations with feedback)")
+                for (name, ups, downs) in perStation.sorted(by: { $0.1 + $0.2 > $1.1 + $1.2 }).prefix(15) {
+                    print(String(format: "  %3d👍 %3d👎  %@", ups, downs, name))
+                }
+            } catch {
+                print("❌ \(error)")
+            }
+
         case "gql":
             // pandora-probe gql <ip> '<query>' — listener GraphQL via stored credentials.
             guard args.count > 3, let creds = PandoraKeychain.load() else {
