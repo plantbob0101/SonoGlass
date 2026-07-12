@@ -28,9 +28,11 @@ final class MiniPlayerController {
         }
     }
 
+    private static let panelSize = NSSize(width: 358, height: 118)
+
     private func makePanel(appState: AppState) -> FloatingPanel {
         let panel = FloatingPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 330, height: 92),
+            contentRect: NSRect(origin: .zero, size: Self.panelSize),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -39,7 +41,9 @@ final class MiniPlayerController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isMovableByWindowBackground = true
         panel.hidesOnDeactivate = false
-        panel.hasShadow = true
+        // The glass card draws its own layered soft shadows; the window's hard
+        // shadow is what makes the edges look die-cut.
+        panel.hasShadow = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.isFloatingPanel = true
@@ -56,10 +60,12 @@ final class MiniPlayerController {
         if !panel.setFrameUsingName("MiniPlayer"), let screen = NSScreen.main {
             let visible = screen.visibleFrame
             panel.setFrameOrigin(NSPoint(
-                x: visible.maxX - 350,
-                y: visible.maxY - 112
+                x: visible.maxX - Self.panelSize.width - 20,
+                y: visible.maxY - Self.panelSize.height - 20
             ))
         }
+        // The autosaved frame may carry an older size.
+        panel.setContentSize(Self.panelSize)
         return panel
     }
 }
@@ -115,11 +121,59 @@ struct MiniPlayerView: View {
                 miniButton(symbol: "forward.fill", label: "Skip") { appState.next() }
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .frame(width: 330, height: 92)
-        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .frame(width: 330, height: 90)
+        .glassEffect(.regular.interactive(), in: Self.glassShape)
+        .overlay(rimLight)
+        .overlay(sheen)
+        // Layered shadows: wide ambient + tight contact — reads as a solid
+        // slab floating above the desktop instead of a die-cut window.
+        .shadow(color: .black.opacity(0.28), radius: 18, y: 10)
+        .shadow(color: .black.opacity(0.16), radius: 4, y: 2)
+        .padding(14)
         .opacity(appearsActive ? 1 : 0.85)
+    }
+
+    private static var glassShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 30, style: .continuous)
+    }
+
+    /// Specular rim: bright refraction along the top-left edge fading to a
+    /// faint dark line at the bottom — the "thickness" of the glass.
+    private var rimLight: some View {
+        Self.glassShape
+            .strokeBorder(
+                LinearGradient(
+                    stops: [
+                        .init(color: .white.opacity(0.55), location: 0),
+                        .init(color: .white.opacity(0.10), location: 0.35),
+                        .init(color: .clear, location: 0.7),
+                        .init(color: .black.opacity(0.18), location: 1),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: 1.2
+            )
+            .allowsHitTesting(false)
+    }
+
+    /// Soft light catch across the upper face of the slab.
+    private var sheen: some View {
+        Self.glassShape
+            .fill(
+                LinearGradient(
+                    stops: [
+                        .init(color: .white.opacity(0.10), location: 0),
+                        .init(color: .white.opacity(0.02), location: 0.45),
+                        .init(color: .clear, location: 0.6),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .allowsHitTesting(false)
     }
 
     private func miniButton(symbol: String, label: String, size: CGFloat = 12,
