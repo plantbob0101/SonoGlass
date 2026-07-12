@@ -78,6 +78,20 @@ struct Probe {
                 print("getAppLink failed: \(error)")
             }
 
+        case "gql":
+            // pandora-probe gql <ip> '<query>' — listener GraphQL via stored credentials.
+            guard args.count > 3, let creds = PandoraKeychain.load() else {
+                print("usage: gql <ip> '<query>' (needs Pandora credentials in Keychain)")
+                return
+            }
+            let web = PandoraClient()
+            await web.setCredentials(username: creds.username, password: creds.password)
+            do {
+                print(try await web.webGraphQLQuery(args[3]))
+            } catch {
+                print("❌ \(error)")
+            }
+
         case "soap":
             // pandora-probe soap <ip> <action> <innerXML> — raw authenticated SMAPI call.
             guard args.count > 4,
