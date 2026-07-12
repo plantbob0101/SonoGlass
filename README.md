@@ -144,9 +144,9 @@ First use shows Apple's one-time Media & Apple Music permission dialog.
 ## Phase 2 — not built yet (deliberately)
 
 1. Media-key / global keyboard shortcuts.
-3. Grouping editor, sleep timer, current-queue view (`Q:0`), widgets,
+2. Grouping editor, sleep timer, current-queue view (`Q:0`), widgets,
    Shortcuts/AppleScript.
-4. Deep service catalog browse/search (SMAPI device-link auth — fragile; favorites +
+3. Deep service catalog browse/search (SMAPI device-link auth — fragile; favorites +
    stations cover daily use).
-5. Sonos cloud OAuth for out-of-home control.
-6. Multiple Pandora accounts / households.
+4. Sonos cloud OAuth for out-of-home control.
+5. Multiple Pandora accounts / households.
