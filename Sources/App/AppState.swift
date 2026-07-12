@@ -126,6 +126,14 @@ final class AppState {
         }
     }
 
+    /// Opens the current Apple Music song in the Music app, highlighted on its
+    /// album page (same deep link Shazam uses).
+    func openInAppleMusic() {
+        guard let songID = currentAppleMusicSongID,
+              let url = URL(string: "music://music.apple.com/us/song/\(songID)") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     /// Fetch the server-side favorite state when an Apple Music track appears.
     private func refreshFavoriteState() {
         guard let songID = currentAppleMusicSongID, favoriteCache[songID] == nil else { return }

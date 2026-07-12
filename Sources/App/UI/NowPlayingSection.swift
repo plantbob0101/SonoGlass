@@ -119,17 +119,30 @@ struct FavoriteRow: View {
 
     var body: some View {
         let favorite = appState.currentFavorite == true
-        Button {
-            appState.toggleFavorite()
-        } label: {
-            Image(systemName: favorite ? "star.fill" : "star")
-                .font(.system(size: 20))
-                .foregroundStyle(favorite ? .yellow : .primary)
-                .frame(width: 44, height: 32)
+        HStack(spacing: 24) {
+            Button {
+                appState.toggleFavorite()
+            } label: {
+                Image(systemName: favorite ? "star.fill" : "star")
+                    .font(.system(size: 20))
+                    .foregroundStyle(favorite ? .yellow : .primary)
+                    .frame(width: 44, height: 32)
+            }
+            .buttonStyle(.glass)
+            .help(favorite ? "Remove Favorite from Apple Music" : "Favorite on Apple Music")
+            .accessibilityLabel("Favorite on Apple Music")
+
+            Button {
+                appState.openInAppleMusic()
+            } label: {
+                Image(systemName: "arrow.up.forward.app")
+                    .font(.system(size: 18))
+                    .frame(width: 44, height: 32)
+            }
+            .buttonStyle(.glass)
+            .help("Open this song in Apple Music")
+            .accessibilityLabel("Open in Apple Music")
         }
-        .buttonStyle(.glass)
-        .help(favorite ? "Remove Favorite from Apple Music" : "Favorite on Apple Music")
-        .accessibilityLabel("Favorite on Apple Music")
     }
 }
 

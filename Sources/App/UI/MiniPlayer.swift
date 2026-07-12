@@ -100,11 +100,18 @@ struct MiniPlayerView: View {
 
             HStack(spacing: 6) {
                 if appState.isAppleMusicNow {
-                    miniButton(
-                        symbol: appState.currentFavorite == true ? "star.fill" : "star",
-                        label: "Favorite on Apple Music",
-                        size: 13
-                    ) { appState.toggleFavorite() }
+                    VStack(spacing: 6) {
+                        miniButton(
+                            symbol: appState.currentFavorite == true ? "star.fill" : "star",
+                            label: "Favorite on Apple Music",
+                            size: 13
+                        ) { appState.toggleFavorite() }
+                        miniButton(
+                            symbol: "arrow.up.forward.app",
+                            label: "Open in Apple Music",
+                            size: 12
+                        ) { appState.openInAppleMusic() }
+                    }
                 }
                 if appState.isPandoraNow {
                     VStack(spacing: 6) {
