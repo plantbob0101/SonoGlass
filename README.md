@@ -130,15 +130,20 @@ Resources/          Info.plist, entitlements
 scripts/            make_app.sh, run_tests.sh
 ```
 
+## Apple Music Favorites
+
+When an Apple Music track plays (`x-sonos-http:song%3a{id}.mp4?sid=204`), a ☆ star
+appears in the popover and mini player. It toggles the song's **Favorite** state via
+MusicKit (`PUT/DELETE /v1/me/ratings/songs/{id}`), prefilled from the current rating.
+Requires the **team-signed build**: `TEAM=<teamid> scripts/make_app_signed.sh`
+(XcodeGen + xcodebuild with automatic signing; the App ID `com.sonoglass.app` must
+have the MusicKit App Service enabled in the developer portal, and the entitlements
+force an embedded provisioning profile — MusicKit refuses ad-hoc builds).
+First use shows Apple's one-time Media & Apple Music permission dialog.
+
 ## Phase 2 — not built yet (deliberately)
 
-1. **Apple Music love/dislike.** Sketch: Apple Music track URIs look like
-   `x-sonos-http:song%3a{catalogSongId}.mp4?sid=204...`. Extract the catalog id, then
-   MusicKit (`MusicAuthorization.request()` + `MusicDataRequest`) to
-   `PUT /v1/me/ratings/songs/{id}` with `{"type":"rating","attributes":{"value":1}}`
-   (or `-1`). Needs a provisioning profile with MusicKit enabled. Verify the live URI
-   shape with the Option-click copier first.
-2. Media-key / global keyboard shortcuts.
+1. Media-key / global keyboard shortcuts.
 3. Grouping editor, sleep timer, current-queue view (`Q:0`), widgets,
    Shortcuts/AppleScript.
 4. Deep service catalog browse/search (SMAPI device-link auth — fragile; favorites +
