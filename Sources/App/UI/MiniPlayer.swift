@@ -28,7 +28,7 @@ final class MiniPlayerController {
         }
     }
 
-    private static let panelSize = NSSize(width: 382, height: 142)
+    private static let panelSize = NSSize(width: 406, height: 142)
 
     private func makePanel(appState: AppState) -> FloatingPanel {
         let panel = FloatingPanel(
@@ -126,6 +126,12 @@ struct MiniPlayerView: View {
                             enabled: appState.thumbsAvailable
                         ) { appState.thumbsDown() }
                     }
+                    VStack(spacing: 6) {
+                        miniButton(symbol: "arrow.up.forward.app", label: "Find in Apple Music",
+                                   size: 11) { appState.findCurrentInAppleMusic() }
+                        miniButton(symbol: "globe", label: "Open on pandora.com",
+                                   size: 11) { appState.openPandoraSongPage() }
+                    }
                 }
                 miniButton(
                     symbol: appState.nowPlaying.transport.isPlaying ? "pause.fill" : "play.fill",
@@ -137,7 +143,7 @@ struct MiniPlayerView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .frame(width: 330, height: 90)
+        .frame(width: 354, height: 90)
         .glassEffect(.clear.interactive(), in: Self.glassShape)
         .overlay(rimLight)
         .overlay(sheen)
