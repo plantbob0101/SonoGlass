@@ -42,9 +42,7 @@ import Foundation
 
     @Test func syncTimeDecodeSkipsFourBytesThenTenDigits() throws {
         // Server layout: 4 junk bytes, then 10 ASCII digits (then padding).
-        var payload: [UInt8] = [0xDE, 0xAD, 0xBE, 0xEF]
-        payload.append(contentsOf: Array("1234567890".utf8))
-        let plaintext = String(decoding: payload, as: UTF8.self)
+        let plaintext = "junk1234567890"
         let hex = try PandoraCrypto.encrypt(plaintext, key: PandoraCrypto.decryptKey)
         let decrypted = try PandoraCrypto.decrypt(hex, key: PandoraCrypto.decryptKey)
         #expect(PandoraCrypto.decodeSyncTime(decrypted) == 1_234_567_890)
