@@ -84,13 +84,12 @@ struct MiniPlayerView: View {
                 }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(appState.nowPlaying.title.isEmpty ? "Nothing playing" : appState.nowPlaying.title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(1)
-                Text(appState.nowPlaying.artist)
-                    .font(.system(size: 11))
+                MarqueeText(
+                    text: appState.nowPlaying.title.isEmpty ? "Nothing playing" : appState.nowPlaying.title,
+                    font: .system(size: 12, weight: .semibold)
+                )
+                MarqueeText(text: appState.nowPlaying.artist, font: .system(size: 11))
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
                 Text(appState.selectedGroup?.displayName ?? "")
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)

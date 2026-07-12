@@ -36,14 +36,12 @@ struct NowPlayingSection: View {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.secondary)
                 } else {
-                    Text(appState.nowPlaying.title)
-                        .font(.system(size: 14, weight: .semibold))
-                        .lineLimit(2)
+                    MarqueeText(text: appState.nowPlaying.title,
+                                font: .system(size: 14, weight: .semibold))
                     if !appState.nowPlaying.artist.isEmpty {
-                        Text(appState.nowPlaying.artist)
-                            .font(.system(size: 12))
+                        MarqueeText(text: appState.nowPlaying.artist,
+                                    font: .system(size: 12))
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
                     }
                     if !subtitle.isEmpty {
                         Text(subtitle)
