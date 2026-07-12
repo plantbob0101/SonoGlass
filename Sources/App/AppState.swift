@@ -302,6 +302,34 @@ final class AppState {
         Task { await system.selectGroup(id: id) }
     }
 
+    // MARK: - Group editing
+
+    /// Every visible room in the household, one entry per player.
+    var allRooms: [SonosDevice] {
+        var seen = Set<String>()
+        return groups.flatMap(\.members)
+            .filter { seen.insert($0.udn).inserted }
+            .sorted { $0.roomName.localizedCaseInsensitiveCompare($1.roomName) == .orderedAscending }
+    }
+
+    var selectedGroupMemberUDNs: Set<String> {
+        Set(selectedGroup?.members.map(\.udn) ?? [])
+    }
+
+    func setRoom(_ device: SonosDevice, grouped: Bool) {
+        Task {
+            do {
+                if grouped {
+                    try await system.joinCurrentGroup(device: device)
+                } else {
+                    try await system.removeFromGroup(device: device)
+                }
+            } catch {
+                showToast("\(error)")
+            }
+        }
+    }
+
     // MARK: - Volume
 
     /// Debounced live slider updates (≤10 calls/s).

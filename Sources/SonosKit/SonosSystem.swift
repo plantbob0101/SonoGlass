@@ -612,6 +612,46 @@ public actor SonosSystem {
         }
     }
 
+    // MARK: - Grouping
+
+    /// Pulls a player into the currently selected group.
+    public func joinCurrentGroup(device: SonosDevice) async throws {
+        let c = try requireCoordinator()
+        guard device.udn != c.udn else { return }
+        _ = try await soap.call(ip: device.ip, service: .avTransport, action: "SetAVTransportURI", args: [
+            ("InstanceID", "0"),
+            ("CurrentURI", "x-rincon:\(c.udn)"),
+            ("CurrentURIMetaData", ""),
+        ])
+        await regroupCompleted()
+    }
+
+    /// Splits a player out of its group (it becomes a standalone room).
+    public func removeFromGroup(device: SonosDevice) async throws {
+        _ = try await soap.call(ip: device.ip, service: .avTransport,
+                                action: "BecomeCoordinatorOfStandaloneGroup",
+                                args: [("InstanceID", "0")])
+        await regroupCompleted()
+    }
+
+    /// Re-reads topology after a membership change. Group IDs change when
+    /// membership does, so re-select by coordinator UDN.
+    private func regroupCompleted() async {
+        let previousCoordinator = coordinator?.udn
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        if let ip = coordinator?.ip ?? groups.first?.members.first?.ip {
+            _ = await refreshTopology(via: ip)
+        }
+        if !groups.contains(where: { $0.id == selectedGroupID }) {
+            selectedGroupID = groups.first { $0.coordinatorUDN == previousCoordinator }?.id
+                ?? groups.first { group in group.members.contains { $0.udn == previousCoordinator } }?.id
+                ?? groups.first?.id
+        }
+        emit(.groups(groups, selectedID: selectedGroupID))
+        await resubscribe()
+        await pollOnce()
+    }
+
     // MARK: - Thumbs via the player's local control websocket
 
     /// Rates the currently playing track through the player's own music-service
