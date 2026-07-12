@@ -87,7 +87,7 @@ public enum SSDPDiscovery {
                 var addr = from.sin_addr
                 var str = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
                 if inet_ntop(AF_INET, &addr, &str, socklen_t(INET_ADDRSTRLEN)) != nil {
-                    ip = String(cString: str)
+                    ip = String(decoding: str.prefix(while: { $0 != 0 }).map(UInt8.init(bitPattern:)), as: UTF8.self)
                 }
             }
             if let ip { found.insert(ip) }
@@ -201,7 +201,7 @@ public enum LocalIP {
             var str = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
             var a = addr
             guard inet_ntop(AF_INET, &a, &str, socklen_t(INET_ADDRSTRLEN)) != nil else { continue }
-            let ipStr = String(cString: str)
+            let ipStr = String(decoding: str.prefix(while: { $0 != 0 }).map(UInt8.init(bitPattern:)), as: UTF8.self)
             if fallback == nil { fallback = ipStr }
             if let mask {
                 let m = UInt32(bigEndian: mask.s_addr)

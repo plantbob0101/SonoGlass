@@ -9,7 +9,11 @@ cd "$(dirname "$0")/.."
 CONFIG="${CONFIG:-release}"
 SANDBOX="${SANDBOX:-1}"
 
-swift build -c "$CONFIG"
+# Pin to the macOS 26-series SDK: the 27 beta SDK macro-izes SwiftUI property
+# wrappers via plugins that only ship with full Xcode, not Command Line Tools.
+SDK="${SDK:-/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk}"
+
+swift build -c "$CONFIG" --sdk "$SDK"
 
 BIN=".build/$CONFIG/SonoGlass"
 APP="dist/SonoGlass.app"
