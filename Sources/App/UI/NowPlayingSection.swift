@@ -248,35 +248,83 @@ struct VolumeRow: View {
 
 struct GroupPickerRow: View {
     @Environment(AppState.self) private var appState
+    @State private var editingGroup = false
 
     var body: some View {
-        Menu {
-            ForEach(appState.groups) { group in
-                Button {
-                    appState.selectGroup(group.id)
-                } label: {
-                    if group.id == appState.selectedGroupID {
-                        Label(group.displayName, systemImage: "checkmark")
-                    } else {
-                        Text(group.displayName)
+        HStack(spacing: 10) {
+            Menu {
+                ForEach(appState.groups) { group in
+                    Button {
+                        appState.selectGroup(group.id)
+                    } label: {
+                        if group.id == appState.selectedGroupID {
+                            Label(group.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(group.displayName)
+                        }
                     }
                 }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: (appState.selectedGroup?.members.count ?? 1) > 1
+                          ? "hifispeaker.2.fill" : "hifispeaker.fill")
+                        .font(.caption)
+                    Text(appState.selectedGroup?.displayName ?? "No room")
+                        .font(.callout)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: (appState.selectedGroup?.members.count ?? 1) > 1
-                      ? "hifispeaker.2.fill" : "hifispeaker.fill")
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityLabel("Speaker group")
+
+            Button {
+                editingGroup.toggle()
+            } label: {
+                Image(systemName: "plus.square.on.square")
                     .font(.caption)
-                Text(appState.selectedGroup?.displayName ?? "No room")
-                    .font(.callout)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Add or remove rooms from this group")
+            .accessibilityLabel("Edit group rooms")
+            .popover(isPresented: $editingGroup, arrowEdge: .bottom) {
+                GroupEditor()
+                    .environment(appState)
             }
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .accessibilityLabel("Speaker group")
+    }
+}
+
+/// Checkbox-per-room editor: check to pull a room into the current group,
+/// uncheck to split it out as its own room.
+struct GroupEditor: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        let members = appState.selectedGroupMemberUDNs
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Rooms in “\(appState.selectedGroup?.displayName ?? "group")”")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ForEach(appState.allRooms) { room in
+                let isMember = members.contains(room.udn)
+                let isLastMember = isMember && members.count == 1
+                Toggle(isOn: Binding(
+                    get: { isMember },
+                    set: { appState.setRoom(room, grouped: $0) }
+                )) {
+                    Text(room.roomName)
+                        .font(.callout)
+                }
+                .toggleStyle(.checkbox)
+                .disabled(isLastMember)
+                .help(isLastMember ? "A group needs at least one room" : "")
+            }
+        }
+        .padding(14)
+        .frame(minWidth: 200)
     }
 }
 
