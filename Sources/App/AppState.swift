@@ -225,6 +225,10 @@ final class AppState {
             case .volume(let v, let m):
                 if volumeSendTask == nil { volume = Double(v) }
                 muted = m
+            case .memberVolumes(let vols):
+                for (udn, v) in vols where memberVolumeTasks[udn] == nil {
+                    memberVolumes[udn] = v
+                }
             case .services(let list):
                 services = list
                 Task { pandoraSid = await system.currentPandoraServiceID() }
@@ -355,6 +359,29 @@ final class AppState {
     func adjustVolume(by delta: Double) {
         let newValue = min(100, max(0, volume + delta))
         volumeChanged(newValue)
+    }
+
+    // MARK: - Per-room volume within a group
+
+    var memberVolumes: [String: Int] = [:]
+    @ObservationIgnored private var memberVolumeTasks: [String: Task<Void, Never>] = [:]
+
+    func memberVolumeChanged(_ device: SonosDevice, to value: Double) {
+        memberVolumes[device.udn] = Int(value)
+        memberVolumeTasks[device.udn]?.cancel()
+        memberVolumeTasks[device.udn] = Task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            guard !Task.isCancelled else { return }
+            try? await system.setMemberVolume(Int(value), device: device)
+            memberVolumeTasks[device.udn] = nil
+        }
+    }
+
+    func memberVolumeCommitted(_ device: SonosDevice) {
+        memberVolumeTasks[device.udn]?.cancel()
+        memberVolumeTasks[device.udn] = nil
+        guard let value = memberVolumes[device.udn] else { return }
+        Task { try? await system.setMemberVolume(value, device: device) }
     }
 
     func toggleMute() {
