@@ -216,32 +216,65 @@ struct VolumeRow: View {
 
     var body: some View {
         @Bindable var state = appState
-        HStack(spacing: 10) {
-            Button {
-                appState.toggleMute()
-            } label: {
-                Image(systemName: appState.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                    .frame(width: 22)
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel(appState.muted ? "Unmute" : "Mute")
-
-            Slider(
-                value: Binding(
-                    get: { state.volume },
-                    set: { appState.volumeChanged($0) }
-                ),
-                in: 0...100,
-                onEditingChanged: { editing in
-                    if !editing { appState.volumeCommitted() }
+        VStack(spacing: 6) {
+            HStack(spacing: 10) {
+                Button {
+                    appState.toggleMute()
+                } label: {
+                    Image(systemName: appState.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                        .frame(width: 22)
                 }
-            )
-            .accessibilityLabel("Volume")
+                .buttonStyle(.borderless)
+                .accessibilityLabel(appState.muted ? "Unmute" : "Mute")
 
-            Text("\(Int(appState.volume))")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 26, alignment: .trailing)
+                Slider(
+                    value: Binding(
+                        get: { state.volume },
+                        set: { appState.volumeChanged($0) }
+                    ),
+                    in: 0...100,
+                    onEditingChanged: { editing in
+                        if !editing { appState.volumeCommitted() }
+                    }
+                )
+                .accessibilityLabel("Volume")
+
+                Text("\(Int(appState.volume))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 26, alignment: .trailing)
+            }
+
+            // Per-room trim when more than one room is grouped.
+            if let group = appState.selectedGroup, group.members.count > 1 {
+                ForEach(group.members.sorted {
+                    $0.roomName.localizedCaseInsensitiveCompare($1.roomName) == .orderedAscending
+                }) { member in
+                    HStack(spacing: 10) {
+                        Text(member.roomName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .frame(width: 92, alignment: .leading)
+                        Slider(
+                            value: Binding(
+                                get: { Double(appState.memberVolumes[member.udn] ?? 0) },
+                                set: { appState.memberVolumeChanged(member, to: $0) }
+                            ),
+                            in: 0...100,
+                            onEditingChanged: { editing in
+                                if !editing { appState.memberVolumeCommitted(member) }
+                            }
+                        )
+                        .controlSize(.mini)
+                        .accessibilityLabel("\(member.roomName) volume")
+                        Text("\(appState.memberVolumes[member.udn] ?? 0)")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 26, alignment: .trailing)
+                    }
+                }
+            }
         }
     }
 }

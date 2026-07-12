@@ -15,6 +15,7 @@ public enum SonosUpdate: Sendable {
     case groups([ZoneGroup], selectedID: String?)
     case nowPlaying(NowPlayingState)
     case volume(Int, muted: Bool)
+    case memberVolumes([String: Int])   // udn → volume, for the selected group
     case services([MusicService])
     case eventsHealthy(Bool)
     case reachable(Bool)
@@ -42,6 +43,7 @@ public actor SonosSystem {
     private var renewTasks: [Task<Void, Never>] = []
     private var sidKinds: [String: SonosUPnPService] = [:]
     private var eventsHealthy = false
+    private var memberVols: [String: Int] = [:]
     private var pollTask: Task<Void, Never>?
     private var pollFailures = 0
     private var reachable = true
@@ -217,6 +219,14 @@ public actor SonosSystem {
             _ = try await soap.call(ip: c.ip, service: .renderingControl, action: "SetVolume",
                                     args: [("InstanceID", "0"), ("Channel", "Master"), ("DesiredVolume", String(value))])
         }
+    }
+
+    /// Sets one member's own volume (trim within a group).
+    public func setMemberVolume(_ value: Int, device: SonosDevice) async throws {
+        memberVols[device.udn] = value
+        _ = try await soap.call(ip: device.ip, service: .renderingControl, action: "SetVolume",
+                                args: [("InstanceID", "0"), ("Channel", "Master"),
+                                       ("DesiredVolume", String(value))])
     }
 
     public func setMute(_ mute: Bool) async throws {
@@ -464,6 +474,23 @@ public actor SonosSystem {
             volume = newVolume
             muted = newMuted
             emit(.volume(volume, muted: muted))
+        }
+
+        // Per-member trim volumes for grouped rooms.
+        if multi, let members = selectedGroup?.members {
+            var vols: [String: Int] = [:]
+            for member in members {
+                if let result = try? await soap.call(ip: member.ip, service: .renderingControl,
+                                                     action: "GetVolume",
+                                                     args: [("InstanceID", "0"), ("Channel", "Master")]),
+                   let v = Int(result["CurrentVolume"] ?? "") {
+                    vols[member.udn] = v
+                }
+            }
+            if !vols.isEmpty, vols != memberVols {
+                memberVols = vols
+                emit(.memberVolumes(vols))
+            }
         }
     }
 
