@@ -28,7 +28,7 @@ final class MiniPlayerController {
         }
     }
 
-    private static let panelSize = NSSize(width: 358, height: 118)
+    private static let panelSize = NSSize(width: 382, height: 142)
 
     private func makePanel(appState: AppState) -> FloatingPanel {
         let panel = FloatingPanel(
@@ -124,14 +124,15 @@ struct MiniPlayerView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .frame(width: 330, height: 90)
-        .glassEffect(.regular.interactive(), in: Self.glassShape)
+        .glassEffect(.clear.interactive(), in: Self.glassShape)
         .overlay(rimLight)
         .overlay(sheen)
-        // Layered shadows: wide ambient + tight contact — reads as a solid
-        // slab floating above the desktop instead of a die-cut window.
-        .shadow(color: .black.opacity(0.28), radius: 18, y: 10)
-        .shadow(color: .black.opacity(0.16), radius: 4, y: 2)
-        .padding(14)
+        // Layered shadows: soft ambient + tight contact — reads as a slab
+        // floating above the desktop. Kept light, and the margin below must
+        // fully contain them or the window edge clips them into a square.
+        .shadow(color: .black.opacity(0.16), radius: 11, y: 6)
+        .shadow(color: .black.opacity(0.09), radius: 3, y: 1)
+        .padding(26)
         .opacity(appearsActive ? 1 : 0.85)
     }
 
