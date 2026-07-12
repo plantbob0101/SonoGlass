@@ -138,6 +138,20 @@ public enum FavoriteClassifier {
     }
 }
 
+public enum AppleMusicURI {
+    /// Extracts the Apple Music catalog song id from a Sonos track URI:
+    ///   x-sonos-http:song%3a1573631343.mp4?sid=204&flags=8232&sn=10
+    public static func songID(fromTrackURI uri: String) -> String? {
+        let pattern = "^x-sonos(?:prog)?-http:song%3a([0-9]+)\\."
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+              let match = regex.firstMatch(in: uri, options: [],
+                                           range: NSRange(uri.startIndex..., in: uri)),
+              match.numberOfRanges == 2,
+              let range = Range(match.range(at: 1), in: uri) else { return nil }
+        return String(uri[range])
+    }
+}
+
 public enum SonosURI {
     /// Extracts a query parameter from a raw Sonos URI without URL-decoding it.
     public static func queryParam(_ name: String, in uri: String) -> String? {

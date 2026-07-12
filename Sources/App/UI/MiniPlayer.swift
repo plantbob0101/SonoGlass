@@ -99,6 +99,13 @@ struct MiniPlayerView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 6) {
+                if appState.isAppleMusicNow {
+                    miniButton(
+                        symbol: appState.currentFavorite == true ? "star.fill" : "star",
+                        label: "Favorite on Apple Music",
+                        size: 13
+                    ) { appState.toggleFavorite() }
+                }
                 if appState.isPandoraNow {
                     VStack(spacing: 6) {
                         miniButton(

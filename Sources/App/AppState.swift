@@ -29,6 +29,8 @@ final class AppState {
     var stations: [PandoraStation] = []
     /// Optimistic per-trackToken feedback cache (cleared when the track changes).
     var thumbCache: [String: Bool] = [:]
+    /// Apple Music favorite state per catalog song id.
+    var favoriteCache: [String: Bool] = [:]
 
     // Pandora SMAPI (thumbs on modern cloud-queue firmware)
     var smapiLinked = false
@@ -47,6 +49,7 @@ final class AppState {
 
     let system = SonosSystem()
     let pandora = PandoraClient()
+    let appleMusic = AppleMusicRatings()
 
     @ObservationIgnored private var miniPlayer: MiniPlayerController?
     @ObservationIgnored private var volumeSendTask: Task<Void, Never>?
@@ -83,6 +86,54 @@ final class AppState {
         guard thumbsAvailable else { return nil }
         // Optimistic local state wins; fall back to the speaker-reported rating.
         return thumbCache[thumbKey] ?? nowPlaying.rating
+    }
+
+    // MARK: - Apple Music detection
+
+    var appleMusicSid: Int? {
+        services.first { $0.name == "Apple Music" }?.id
+    }
+
+    var currentAppleMusicSongID: String? {
+        guard let songID = AppleMusicURI.songID(fromTrackURI: nowPlaying.trackURI) else { return nil }
+        // Confirm the track really belongs to the Apple Music service.
+        if let sidParam = SonosURI.queryParam("sid", in: nowPlaying.trackURI),
+           let sid = Int(sidParam), let amSid = appleMusicSid {
+            return sid == amSid ? songID : nil
+        }
+        return songID
+    }
+
+    var isAppleMusicNow: Bool { currentAppleMusicSongID != nil }
+
+    /// Favorite state of the current Apple Music song (nil = unknown/unrated).
+    var currentFavorite: Bool? {
+        guard let songID = currentAppleMusicSongID else { return nil }
+        return favoriteCache[songID]
+    }
+
+    func toggleFavorite() {
+        guard let songID = currentAppleMusicSongID else { return }
+        let target = !(favoriteCache[songID] ?? false)
+        favoriteCache[songID] = target
+        Task {
+            do {
+                try await appleMusic.setFavorite(songID: songID, favorite: target)
+            } catch {
+                favoriteCache[songID] = nil
+                showToast("\(error)")
+            }
+        }
+    }
+
+    /// Fetch the server-side favorite state when an Apple Music track appears.
+    private func refreshFavoriteState() {
+        guard let songID = currentAppleMusicSongID, favoriteCache[songID] == nil else { return }
+        Task {
+            if let loved = try? await appleMusic.isFavorite(songID: songID) {
+                if favoriteCache[songID] == nil { favoriteCache[songID] = loved }
+            }
+        }
     }
 
     // MARK: - Lifecycle
@@ -122,6 +173,7 @@ final class AppState {
                 selectedGroupID = selectedID
             case .nowPlaying(let np):
                 nowPlaying = np
+                refreshFavoriteState()
             case .volume(let v, let m):
                 if volumeSendTask == nil { volume = Double(v) }
                 muted = m
