@@ -30,8 +30,8 @@ swift run sonoglass-diag [ip]  # CLI protocol smoke test against your real speak
 (`/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk`). The macOS 27 beta SDK
 turns SwiftUI property wrappers into compiler macros whose plugins only ship inside
 full Xcode, so plain CLT builds fail against it. If you install Xcode 27 later you can
-drop the pin. `scripts/run_tests.sh` also symlinks CLT's `Testing.framework` into the
-test bundle because CLT keeps it outside the default dyld search path.
+drop the pin. `scripts/run_tests.sh` uses SwiftPM's native build system and passes
+explicit framework/plugin/rpath flags for CLT's out-of-the-way `Testing.framework`.
 
 ## First launch
 
