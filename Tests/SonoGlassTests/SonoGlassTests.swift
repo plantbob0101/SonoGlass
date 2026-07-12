@@ -235,6 +235,32 @@ import Foundation
     }
 }
 
+// MARK: - SMAPI (Pandora thumbs)
+
+@Suite struct SMAPITests {
+    @Test func extractsItemIDFromCloudQueueURI() {
+        let uri = "x-sonos-http:VC1%3a%3aST%3a%3aST%3a50735628413459788%3a%3aTR%3a136704%3a%3a34%3a%3aRINCON_347E5CD222DE01400%3a730405094.mp3?sid=236&flags=32768&sn=2"
+        #expect(PandoraSMAPI.itemID(fromTrackURI: uri)
+                == "VC1::ST::ST:50735628413459788::TR:136704::34::RINCON_347E5CD222DE01400:730405094")
+    }
+
+    @Test func extractsItemIDFromMp4AndProgVariant() {
+        #expect(PandoraSMAPI.itemID(fromTrackURI: "x-sonosprog-http:VC1%3a%3aTR%3a99.mp4?sid=236")
+                == "VC1::TR:99")
+        #expect(PandoraSMAPI.itemID(fromTrackURI: "x-sonos-spotify:track?sid=9") == nil)
+    }
+
+    @Test func derivesSonosDeviceIDFromUDN() {
+        #expect(PandoraSMAPI.deviceId(fromUDN: "RINCON_347E5CD222DE01400") == "34-7E-5C-D2-22-DE:0")
+    }
+
+    @Test func ratingValuesMatchPresentationMap() {
+        // From Pandora's Sonos presentation map: 1 = thumbs up, 2 = thumbs down.
+        #expect(SMAPIRating.thumbsUp.rawValue == 1)
+        #expect(SMAPIRating.thumbsDown.rawValue == 2)
+    }
+}
+
 // MARK: - XML escaping
 
 @Suite struct XMLTextTests {

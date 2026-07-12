@@ -81,7 +81,8 @@ struct ThumbsRow: View {
 
     var body: some View {
         let thumb = appState.currentThumb
-        let enabled = appState.pandoraConfigured && appState.thumbsAvailable
+        let enabled = appState.smapiLinked && appState.thumbsAvailable
+        let hint = appState.smapiLinked ? "" : "Link Pandora for thumbs in Settings"
         HStack(spacing: 44) {
             Button {
                 appState.thumbsDown()
@@ -92,7 +93,7 @@ struct ThumbsRow: View {
             }
             .buttonStyle(.glass)
             .disabled(!enabled)
-            .help(enabled ? "Thumbs down (skips track)" : "Add your Pandora account in Settings")
+            .help(enabled ? "Thumbs down (skips track)" : hint)
             .accessibilityLabel("Thumbs down")
 
             Button {
@@ -104,7 +105,7 @@ struct ThumbsRow: View {
             }
             .buttonStyle(.glass)
             .disabled(!enabled)
-            .help(enabled ? "Thumbs up" : "Add your Pandora account in Settings")
+            .help(enabled ? "Thumbs up" : hint)
             .accessibilityLabel("Thumbs up")
         }
         .opacity(enabled ? 1 : 0.5)

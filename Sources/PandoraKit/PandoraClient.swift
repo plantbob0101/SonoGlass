@@ -152,9 +152,18 @@ public actor PandoraClient {
         let (status, body) = try await webPost(path: "/api/v1/graphql/graphql",
                                                json: ["query": mutation])
         guard status == 200, body.contains("\"status\":\"OK\""), !body.contains("\"errors\"") else {
-            pandoraLog.error("GraphQL feedback failed: HTTP \(status)")
-            throw PandoraError.badResponse("feedback rejected (HTTP \(status))")
+            pandoraLog.error("GraphQL feedback failed: HTTP \(status) body=\(body, privacy: .public) mutation=\(mutation, privacy: .public)")
+            throw PandoraError.badResponse("feedback rejected: \(Self.graphQLErrorSummary(from: body, status: status))")
         }
+    }
+
+    private static func graphQLErrorSummary(from body: String, status: Int) -> String {
+        if let json = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any],
+           let errors = json["errors"] as? [[String: Any]],
+           let message = errors.first?["message"] as? String {
+            return message
+        }
+        return "HTTP \(status): \(body.prefix(160))"
     }
 
     private func webPost(path: String, json: [String: Any]) async throws -> (Int, String) {

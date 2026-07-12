@@ -47,6 +47,7 @@ public actor SonosSystem {
     private var reachable = true
 
     private var cachedFavorites: [DIDLItem] = []
+    private let smapi = PandoraSMAPI()
 
     public init() {
         (updates, continuation) = AsyncStream.makeStream(of: SonosUpdate.self, bufferingPolicy: .unbounded)
@@ -608,6 +609,44 @@ public actor SonosSystem {
                 emit(.groups(groups, selectedID: selectedGroupID))
             }
         }
+    }
+
+    // MARK: - Pandora SMAPI (thumbs on cloud-queue firmware)
+
+    /// Household id + Sonos-style device id for the current coordinator.
+    public func smapiIdentity() -> (householdId: String, deviceId: String)? {
+        guard let c = coordinator else { return nil }
+        // householdId is fetched async by the caller via PandoraSMAPI.householdId;
+        // here we only supply the deviceId derived from the coordinator UDN.
+        return (c.udn, PandoraSMAPI.deviceId(fromUDN: c.udn))
+    }
+
+    public func smapiHouseholdId() async -> String? {
+        guard let c = coordinator else { return nil }
+        return await PandoraSMAPI.householdId(ip: c.ip)
+    }
+
+    public func smapiBeginLink() async throws -> SMAPIDeviceLink {
+        guard let c = coordinator else { throw SonosError(message: "No Sonos group selected") }
+        guard let household = await PandoraSMAPI.householdId(ip: c.ip) else {
+            throw SonosError(message: "Could not read Sonos household id")
+        }
+        let deviceId = PandoraSMAPI.deviceId(fromUDN: c.udn)
+        return try await smapi.getAppLink(householdId: household, deviceId: deviceId)
+    }
+
+    public func smapiPollToken(link: SMAPIDeviceLink) async throws -> SMAPICredentials {
+        try await smapi.getDeviceAuthToken(link: link)
+    }
+
+    /// Rates the currently playing track. Returns whether Sonos should skip.
+    @discardableResult
+    public func smapiRateCurrent(rating: SMAPIRating,
+                                 credentials: SMAPICredentials) async throws -> Bool {
+        guard let itemID = PandoraSMAPI.itemID(fromTrackURI: nowPlaying.trackURI) else {
+            throw SonosError(message: "No rateable track playing")
+        }
+        return try await smapi.rateItem(id: itemID, rating: rating, credentials: credentials)
     }
 
     public func shutdown() async {
