@@ -26,7 +26,7 @@ targets:
         PRODUCT_NAME: SonoGlass
         INFOPLIST_FILE: Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
-        CODE_SIGN_ENTITLEMENTS: Resources/SonoGlass.entitlements
+        CODE_SIGN_ENTITLEMENTS: Resources/SonoGlass-signed.entitlements
         CODE_SIGN_STYLE: Automatic
         ENABLE_HARDENED_RUNTIME: NO
         SWIFT_VERSION: "6.0"
