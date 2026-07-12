@@ -166,6 +166,14 @@ public actor PandoraClient {
         return "HTTP \(status): \(body.prefix(160))"
     }
 
+    /// Diagnostic: run a raw listener GraphQL query and return the response body.
+    public func webGraphQLQuery(_ query: String) async throws -> String {
+        try await ensureWebSession()
+        let (status, body) = try await webPost(path: "/api/v1/graphql/graphql",
+                                               json: ["query": query])
+        return "HTTP \(status): \(body)"
+    }
+
     private func webPost(path: String, json: [String: Any]) async throws -> (Int, String) {
         var request = URLRequest(url: URL(string: "https://www.pandora.com\(path)")!)
         request.httpMethod = "POST"
