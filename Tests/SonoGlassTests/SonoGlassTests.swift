@@ -25,6 +25,21 @@ import Foundation
         #expect(PandoraTokens.parse(trackURI: "x-sonos-spotify:spotify%3atrack%3aabc?sid=9") == nil)
         #expect(PandoraTokens.parse(trackURI: "") == nil)
         #expect(PandoraTokens.parse(trackURI: "x-sonos-http:song%3a12345.mp4?sid=204") == nil)
+        #expect(PandoraTrackRef.parse(trackURI: "x-sonos-spotify:spotify%3atrack%3aabc?sid=9") == nil)
+        #expect(PandoraTrackRef.parse(trackURI: "x-sonos-http:song%3a12345.mp4?sid=204") == nil)
+    }
+
+    @Test func parsesModernCloudQueueShape() {
+***REMOVED BY PRIVACY REWRITE***
+***REMOVED BY PRIVACY REWRITE***
+        let ref = PandoraTrackRef.parse(trackURI: uri)
+***REMOVED BY PRIVACY REWRITE***
+    }
+
+    @Test func legacyShapeStillParsesAsLegacy() {
+        let uri = "x-sonos-http:trackTokenABC123%3a%3aST%3a4001234567890123456%3a%3aRINCON_B8E93712345601400?sid=236&flags=8224&sn=1"
+        let ref = PandoraTrackRef.parse(trackURI: uri)
+        #expect(ref == .legacy(trackToken: "trackTokenABC123", stationToken: "4001234567890123456"))
     }
 }
 

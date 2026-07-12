@@ -112,6 +112,9 @@ public final class DIDLParser: NSObject, XMLParserDelegate {
         case "r:description": item.description = text
         case "res": if item.res.isEmpty { item.res = text }
         case "r:resMD": item.resMD = text
+        case "r:connotation":
+            if text == "POSITIVE" { item.rating = true }
+            if text == "NEGATIVE" { item.rating = false }
         case "item", "container":
             items.append(item)
             current = nil

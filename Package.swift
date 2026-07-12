@@ -23,6 +23,11 @@ let package = Package(
             dependencies: ["SonosKit", "PandoraKit"],
             path: "Sources/DiagCLI"
         ),
+        .executableTarget(
+            name: "pandora-probe",
+            dependencies: ["SonosKit", "PandoraKit"],
+            path: "Sources/ProbeCLI"
+        ),
         .testTarget(
             name: "SonoGlassTests",
             dependencies: ["SonosKit", "PandoraKit"],

@@ -49,9 +49,18 @@ explicit framework/plugin/rpath flags for CLT's out-of-the-way `Testing.framewor
   reports Pandora's actual error message on failure.
 - Credentials are stored in the **login Keychain** (`SonoGlass.Pandora`), never in
   UserDefaults. "Remove account" deletes them.
-- While a Pandora station plays, thumbs appear in the popover and mini player:
-  - 👍 calls `station.addFeedback(isPositive: true)` — icon fills for the rest of the track.
-  - 👎 calls `addFeedback(isPositive: false)` and then skips (Pandora convention).
+- While a Pandora station plays, thumbs appear in the popover and mini player.
+  Two firmware generations are handled automatically (see `PandoraTrackRef`):
+  - **Legacy track URIs** (`{trackToken}::ST:{station}::RINCON…`) → v5 tuner API
+    `station.addFeedback`.
+  - **Cloud-queue URIs** (2024+ firmware, `VC1::ST::ST:{station}::TR:{track}::…`)
+    carry catalog ids, not session tokens — feedback goes through Pandora's
+    listener GraphQL API (`www.pandora.com/api/v1/graphql/graphql`,
+    `feedback.setFeedback(targetId: "TR:…", sourceContextId: "ST:0:…")`), using the
+    same stored credentials. Verified live against real speakers.
+  - 👍 fills the icon for the rest of the track; 👎 sends feedback and then skips
+    (Pandora convention). Tracks already thumbed elsewhere show their rating from
+    the speaker's `<r:rating>` metadata.
   - Previous is hidden for Pandora radio (can't rewind); Next stays (it's a skip).
 - The **Stations** tab lists your full station list (`user.getStationList`) in
   Pandora's order (QuickMix/Thumbprint first). Selecting one plays it on the current

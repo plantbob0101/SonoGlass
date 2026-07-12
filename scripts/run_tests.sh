@@ -7,6 +7,8 @@ cd "$(dirname "$0")/.."
 
 SDK="${SDK:-/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk}"
 CLT=/Library/Developer/CommandLineTools
+# Build with CLT even if xcode-select points at an (unlicensed) Xcode install.
+export DEVELOPER_DIR="${DEVELOPER_DIR:-$CLT}"
 
 swift test --build-system native --sdk "$SDK" \
   -Xswiftc -F -Xswiftc "$CLT/Library/Developer/Frameworks" \
