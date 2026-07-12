@@ -24,7 +24,9 @@ struct SonoGlassApp: App {
     @ViewBuilder
     private var menuBarLabel: some View {
         let playing = appState.nowPlaying.transport.isPlaying
-        let symbol = "hifispeaker.2"
+        // Two speakers when the selected group spans multiple rooms.
+        let multi = (appState.selectedGroup?.members.count ?? 1) > 1
+        let symbol = multi ? "hifispeaker.2" : "hifispeaker"
         if showTitleInMenuBar, playing, !appState.nowPlaying.title.isEmpty {
             Label {
                 Text(truncatedTitle)
