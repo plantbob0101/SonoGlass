@@ -28,14 +28,19 @@ public struct SMAPIDeviceLink: Sendable {
     public let showLinkCode: Bool
     public let householdId: String
     public let deviceId: String
+    /// Service-generated opaque id from getAppLink's deviceLink — MUST be
+    /// echoed as linkDeviceId in getDeviceAuthToken (Pandora rejects the
+    /// pickup silently otherwise).
+    public let linkDeviceId: String
 
     public init(regUrl: String, linkCode: String, showLinkCode: Bool,
-                householdId: String, deviceId: String) {
+                householdId: String, deviceId: String, linkDeviceId: String = "") {
         self.regUrl = regUrl
         self.linkCode = linkCode
         self.showLinkCode = showLinkCode
         self.householdId = householdId
         self.deviceId = deviceId
+        self.linkDeviceId = linkDeviceId
     }
 }
 
@@ -132,7 +137,8 @@ public actor PandoraSMAPI {
             linkCode: linkCode,
             showLinkCode: (values["showLinkCode"] ?? "false") == "true",
             householdId: householdId,
-            deviceId: deviceId
+            deviceId: deviceId,
+            linkDeviceId: values["linkDeviceId"] ?? deviceId
         )
     }
 
@@ -143,7 +149,7 @@ public actor PandoraSMAPI {
         <getDeviceAuthToken xmlns="\(Self.namespace)">\
         <householdId>\(XMLText.escape(link.householdId))</householdId>\
         <linkCode>\(XMLText.escape(link.linkCode))</linkCode>\
-        <linkDeviceId>\(XMLText.escape(link.deviceId))</linkDeviceId>\
+        <linkDeviceId>\(XMLText.escape(link.linkDeviceId))</linkDeviceId>\
         </getDeviceAuthToken>
         """
         let header = """
