@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcodebuild -version)",
+      "Bash(swift --version)",
+      "Bash(xcodegen --version)",
+      "Bash(sw_vers)",
+      "Read(//Applications/**)",
+      "Read(//Users/robertstarnes/Applications/**)",
+      "Bash(mdfind \"kMDItemCFBundleIdentifier == 'com.apple.dt.Xcode'\")",
+      "Bash(brew --version)",
+      "Bash(git init *)",
+      "Bash(chmod +x \"/Volumes/Vault/Active/Projects/Sonos HomeGrown/scripts/make_app.sh\")",
+      "Bash(git add *)",
+      "Bash(git commit -q -m 'Scaffold SonoGlass: SonosKit, PandoraKit, SwiftUI app, tests, bundle script *)"
+    ]
+  }
+}
