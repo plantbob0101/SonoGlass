@@ -1,0 +1,61 @@
+import Foundation
+import Security
+
+/// Pandora credentials in the login Keychain (never UserDefaults).
+public enum PandoraKeychain {
+    private static let service = "SonoGlass.Pandora"
+    private static let account = "account"
+
+    public struct Credentials: Codable, Sendable {
+        public let username: String
+        public let password: String
+        public init(username: String, password: String) {
+            self.username = username
+            self.password = password
+        }
+    }
+
+    public static func save(_ credentials: Credentials) throws {
+        let data = try JSONEncoder().encode(credentials)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        let attributes: [String: Any] = [kSecValueData as String: data]
+        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            var add = query
+            add[kSecValueData as String] = data
+            let addStatus = SecItemAdd(add as CFDictionary, nil)
+            guard addStatus == errSecSuccess else {
+                throw NSError(domain: NSOSStatusErrorDomain, code: Int(addStatus))
+            }
+        } else if status != errSecSuccess {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+        }
+    }
+
+    public static func load() -> Credentials? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return nil }
+        return try? JSONDecoder().decode(Credentials.self, from: data)
+    }
+
+    public static func delete() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+}
