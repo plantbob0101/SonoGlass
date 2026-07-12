@@ -237,27 +237,27 @@ final class AppState {
         }
     }
 
-    // MARK: - Pandora thumbs (via Sonos SMAPI rateItem)
+    // MARK: - Pandora thumbs (player rates through its own service session)
 
     func thumbsUp() { rate(positive: true) }
     func thumbsDown() { rate(positive: false) }
 
     private func rate(positive: Bool) {
         guard thumbsAvailable else { return }
-        guard smapiLinked, let creds = smapiCredentials else {
-            showToast("Link Pandora for thumbs in Settings")
-            return
-        }
         let key = thumbKey
+        let trackBefore = nowPlaying.trackURI
         thumbCache[key] = positive
         Task {
             do {
-                let shouldSkip = try await system.smapiRateCurrent(
-                    rating: positive ? .thumbsUp : .thumbsDown, credentials: creds)
-                // Thumbs-down auto-skips on Pandora; honor the service's hint,
-                // and skip anyway by convention if it didn't ask.
-                if !positive, !shouldSkip {
-                    try? await system.next()
+                try await system.rateCurrentTrack(thumbsUp: positive)
+                if !positive {
+                    // Pandora convention: thumbs-down skips. The service usually
+                    // auto-skips; only skip manually if the track didn't change.
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    await system.pollOnce()
+                    if nowPlaying.trackURI == trackBefore {
+                        try? await system.next()
+                    }
                 }
             } catch {
                 thumbCache[key] = nil

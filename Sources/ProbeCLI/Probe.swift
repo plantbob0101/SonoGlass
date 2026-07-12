@@ -78,6 +78,70 @@ struct Probe {
                 print("getAppLink failed: \(error)")
             }
 
+        case "soap":
+            // pandora-probe soap <ip> <action> <innerXML> — raw authenticated SMAPI call.
+            guard args.count > 4,
+                  let data = try? Data(contentsOf: tokenPath),
+                  let creds = try? JSONDecoder().decode(SMAPICredentials.self, from: data) else {
+                print("usage: soap <ip> <action> <innerXML> (and run 'link' first)")
+                return
+            }
+            do {
+                let response = try await smapi.debugCall(action: args[3], innerXML: args[4],
+                                                         credentials: creds)
+                print(response)
+            } catch {
+                print("❌ \(error)")
+            }
+
+        case "feedback":
+            // Lists the station's recent thumbs straight from Pandora (v5 API)
+            // to verify a rating actually landed.
+            guard let creds = PandoraKeychain.load() else {
+                print("FAIL: no Pandora credentials in Keychain")
+                return
+            }
+            guard let uri = await currentTrackURI(ip: ip) else {
+                print("FAIL: nothing playing")
+                return
+            }
+            let decoded = uri.replacingOccurrences(of: "%3a", with: ":")
+                .replacingOccurrences(of: "%3A", with: ":")
+            var stationNum = ""
+            for segment in decoded.components(separatedBy: "::") {
+                if segment.hasPrefix("ST:"), segment.count > 3, stationNum.isEmpty {
+                    stationNum = String(segment.dropFirst(3))
+                }
+            }
+            let tuner = PandoraClient()
+            await tuner.setCredentials(username: creds.username, password: creds.password)
+            do {
+                let stations = try await tuner.stationList()
+                guard let station = stations.first(where: { $0.stationId.contains(stationNum) }) ?? stations.first else {
+                    print("no station match for \(stationNum)")
+                    return
+                }
+                if args.count > 3 {
+                    // Scan every station for a song title (thumbs on shuffle
+                    // land on the origin station).
+                    let needle = args[3].lowercased()
+                    for candidate in stations {
+                        guard let ups = try? await tuner.stationThumbs(
+                            stationToken: candidate.stationToken, positive: true) else { continue }
+                        let hits = ups.filter { $0.lowercased().contains(needle) }
+                        for hit in hits { print("  👍 \(hit)   [station: \(candidate.stationName)]") }
+                    }
+                    print("scan complete")
+                } else {
+                    print("Station: \(station.stationName)")
+                    let ups = try await tuner.stationThumbs(stationToken: station.stationToken, positive: true)
+                    print("Thumbs up (\(ups.count)):")
+                    for song in ups.prefix(12) { print("  👍 \(song)") }
+                }
+            } catch {
+                print("❌ \(error)")
+            }
+
         case "import":
             // Copies the token captured by 'link' into the app's Keychain item.
             guard let data = try? Data(contentsOf: tokenPath) else {

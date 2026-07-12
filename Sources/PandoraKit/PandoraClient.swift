@@ -180,6 +180,22 @@ public actor PandoraClient {
         return (status, String(decoding: data, as: UTF8.self))
     }
 
+    /// Recent thumbed songs for a station ("song — artist" strings, newest data
+    /// Pandora returns first). Used to verify feedback landed.
+    public func stationThumbs(stationToken: String, positive: Bool) async throws -> [String] {
+        let result = try await authenticatedCall(method: "station.getStation", params: [
+            "stationToken": stationToken,
+            "includeExtendedAttributes": true,
+        ])
+        guard let feedback = result["feedback"] as? [String: Any],
+              let list = feedback[positive ? "thumbsUp" : "thumbsDown"] as? [[String: Any]] else {
+            return []
+        }
+        return list.map { entry in
+            "\(entry["songName"] as? String ?? "?") — \(entry["artistName"] as? String ?? "?")"
+        }
+    }
+
     public func stationList() async throws -> [PandoraStation] {
         let result = try await authenticatedCall(method: "user.getStationList", params: [
             "includeStationArtUrl": true,

@@ -211,6 +211,38 @@ public actor PandoraSMAPI {
         return decoded.isEmpty ? nil : decoded
     }
 
+    /// Diagnostic: raw SOAP call with credentials, returning the raw response body.
+    public func debugCall(action: String, innerXML: String,
+                          credentials: SMAPICredentials) async throws -> String {
+        let header = """
+        <credentials xmlns="\(Self.namespace)">\
+        <loginToken>\
+        <token>\(XMLText.escape(credentials.authToken))</token>\
+        <key>\(XMLText.escape(credentials.privateKey))</key>\
+        <householdId>\(XMLText.escape(credentials.householdId))</householdId>\
+        </loginToken>\
+        <deviceId>\(XMLText.escape(credentials.deviceId))</deviceId>\
+        <deviceProvider>Sonos</deviceProvider>\
+        </credentials>
+        """
+        let envelope = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">\
+        <s:Header>\(header)</s:Header>\
+        <s:Body><\(action) xmlns="\(Self.namespace)">\(innerXML)</\(action)></s:Body>\
+        </s:Envelope>
+        """
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
+        request.setValue("\"\(Self.namespace)#\(action)\"", forHTTPHeaderField: "SOAPACTION")
+        request.setValue("Linux UPnP/1.0 Sonos/70.0-00000 (SonoGlass)", forHTTPHeaderField: "User-Agent")
+        request.httpBody = Data(envelope.utf8)
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        return "HTTP \(status): \(String(decoding: data, as: UTF8.self))"
+    }
+
     // MARK: - SOAP plumbing
 
     private func soap(action: String, header: String, body: String) async throws -> [String: String] {
