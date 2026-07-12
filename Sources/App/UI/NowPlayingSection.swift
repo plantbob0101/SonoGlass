@@ -9,6 +9,8 @@ struct NowPlayingSection: View {
             nowPlayingCard
             if appState.isPandoraNow {
                 ThumbsRow()
+            } else if appState.isAppleMusicNow {
+                FavoriteRow()
             }
             TransportRow()
             VolumeRow()
@@ -109,6 +111,25 @@ struct ThumbsRow: View {
             .accessibilityLabel("Thumbs up")
         }
         .opacity(enabled ? 1 : 0.5)
+    }
+}
+
+struct FavoriteRow: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        let favorite = appState.currentFavorite == true
+        Button {
+            appState.toggleFavorite()
+        } label: {
+            Image(systemName: favorite ? "star.fill" : "star")
+                .font(.system(size: 20))
+                .foregroundStyle(favorite ? .yellow : .primary)
+                .frame(width: 44, height: 32)
+        }
+        .buttonStyle(.glass)
+        .help(favorite ? "Remove Favorite from Apple Music" : "Favorite on Apple Music")
+        .accessibilityLabel("Favorite on Apple Music")
     }
 }
 

@@ -26,6 +26,8 @@
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>SonoGlass discovers and controls Sonos speakers on your local network.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>SonoGlass marks songs as Favorites in your Apple Music library.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_sonos._tcp.</string>

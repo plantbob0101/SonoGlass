@@ -1,0 +1,34 @@
+name: SonoGlass
+options:
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+
+packages:
+  SonoGlassCore:
+    path: .
+
+targets:
+  SonoGlass:
+    type: application
+    platform: macOS
+    scheme: {}
+    sources:
+      - path: Sources/App
+    dependencies:
+      - package: SonoGlassCore
+        products:
+          - SonosKit
+          - PandoraKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sonoglass.app
+        PRODUCT_NAME: SonoGlass
+        INFOPLIST_FILE: Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Resources/SonoGlass.entitlements
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: NO
+        SWIFT_VERSION: "6.0"
+        MACOSX_DEPLOYMENT_TARGET: "26.0"
+        DEAD_CODE_STRIPPING: YES

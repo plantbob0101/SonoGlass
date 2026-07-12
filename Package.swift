@@ -4,6 +4,10 @@ import PackageDescription
 let package = Package(
     name: "SonoGlass",
     platforms: [.macOS("26.0")],
+    products: [
+        .library(name: "SonosKit", targets: ["SonosKit"]),
+        .library(name: "PandoraKit", targets: ["PandoraKit"]),
+    ],
     dependencies: [
         .package(url: "https://github.com/krzyzanowskim/CryptoSwift.git", from: "1.8.0"),
     ],
