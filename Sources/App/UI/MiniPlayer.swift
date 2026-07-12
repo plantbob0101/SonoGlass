@@ -98,12 +98,12 @@ struct MiniPlayerView: View {
                         miniButton(
                             symbol: appState.currentThumb == true ? "hand.thumbsup.fill" : "hand.thumbsup",
                             label: "Thumbs up",
-                            enabled: appState.pandoraConfigured && appState.thumbsAvailable
+                            enabled: appState.smapiLinked && appState.thumbsAvailable
                         ) { appState.thumbsUp() }
                         miniButton(
                             symbol: appState.currentThumb == false ? "hand.thumbsdown.fill" : "hand.thumbsdown",
                             label: "Thumbs down",
-                            enabled: appState.pandoraConfigured && appState.thumbsAvailable
+                            enabled: appState.smapiLinked && appState.thumbsAvailable
                         ) { appState.thumbsDown() }
                     }
                 }
@@ -132,7 +132,7 @@ struct MiniPlayerView: View {
         .buttonStyle(.borderless)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.4)
-        .help(enabled ? label : "Add your Pandora account in Settings")
+        .help(enabled ? label : "Link Pandora for thumbs in Settings")
         .accessibilityLabel(label)
     }
 }

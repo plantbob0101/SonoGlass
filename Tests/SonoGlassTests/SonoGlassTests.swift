@@ -235,6 +235,32 @@ import Foundation
     }
 }
 
+// MARK: - SMAPI (Pandora thumbs)
+
+@Suite struct SMAPITests {
+    @Test func extractsItemIDFromCloudQueueURI() {
+***REMOVED BY PRIVACY REWRITE***
+        #expect(PandoraSMAPI.itemID(fromTrackURI: uri)
+***REMOVED BY PRIVACY REWRITE***
+    }
+
+    @Test func extractsItemIDFromMp4AndProgVariant() {
+        #expect(PandoraSMAPI.itemID(fromTrackURI: "x-sonosprog-http:VC1%3a%3aTR%3a99.mp4?sid=236")
+                == "VC1::TR:99")
+        #expect(PandoraSMAPI.itemID(fromTrackURI: "x-sonos-spotify:track?sid=9") == nil)
+    }
+
+    @Test func derivesSonosDeviceIDFromUDN() {
+***REMOVED BY PRIVACY REWRITE***
+    }
+
+    @Test func ratingValuesMatchPresentationMap() {
+        // From Pandora's Sonos presentation map: 1 = thumbs up, 2 = thumbs down.
+        #expect(SMAPIRating.thumbsUp.rawValue == 1)
+        #expect(SMAPIRating.thumbsDown.rawValue == 2)
+    }
+}
+
 // MARK: - XML escaping
 
 @Suite struct XMLTextTests {

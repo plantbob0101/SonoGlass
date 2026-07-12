@@ -30,6 +30,12 @@ final class AppState {
     /// Optimistic per-trackToken feedback cache (cleared when the track changes).
     var thumbCache: [String: Bool] = [:]
 
+    // Pandora SMAPI (thumbs on modern cloud-queue firmware)
+    var smapiLinked = false
+    @ObservationIgnored var smapiCredentials: SMAPICredentials?
+    var linkInProgress = false
+    var linkPrompt: SMAPIDeviceLink?
+
     // Browse state
     var favorites: [DIDLItem] = []
     var playlists: [DIDLItem] = []
@@ -64,18 +70,19 @@ final class AppState {
         return sid == String(pandoraSid)
     }
 
-    var thumbsAvailable: Bool { isPandoraNow && currentTrackRef != nil }
-
-    var currentThumb: Bool? {
-        guard let ref = currentTrackRef else { return nil }
-        // Optimistic local state wins; fall back to the speaker-reported rating.
-        return thumbCache[ref.cacheKey] ?? nowPlaying.rating
+    /// A rateable Pandora track is playing (SMAPI needs only the item id from
+    /// the track URI, which every x-sonos-http Pandora track carries).
+    var thumbsAvailable: Bool {
+        isPandoraNow && !nowPlaying.trackURI.isEmpty
     }
 
-    private var elapsedSeconds: Int {
-        let parts = nowPlaying.relTime.split(separator: ":").compactMap { Int($0) }
-        guard !parts.isEmpty else { return 0 }
-        return parts.reduce(0) { $0 * 60 + $1 }
+    /// Stable per-track key for the optimistic thumb cache.
+    private var thumbKey: String { nowPlaying.trackURI }
+
+    var currentThumb: Bool? {
+        guard thumbsAvailable else { return nil }
+        // Optimistic local state wins; fall back to the speaker-reported rating.
+        return thumbCache[thumbKey] ?? nowPlaying.rating
     }
 
     // MARK: - Lifecycle
@@ -84,6 +91,11 @@ final class AppState {
         if let creds = PandoraKeychain.load() {
             pandoraConfigured = true
             Task { await pandora.setCredentials(username: creds.username, password: creds.password) }
+        }
+        if let data = PandoraSMAPIKeychain.load(),
+           let creds = try? JSONDecoder().decode(SMAPICredentials.self, from: data) {
+            smapiCredentials = creds
+            smapiLinked = true
         }
         Task { await consumeUpdates() }
         let defaults = UserDefaults.standard
@@ -225,36 +237,77 @@ final class AppState {
         }
     }
 
-    // MARK: - Pandora thumbs
+    // MARK: - Pandora thumbs (via Sonos SMAPI rateItem)
 
-    func thumbsUp() {
-        guard let ref = currentTrackRef, pandoraConfigured else { return }
-        thumbCache[ref.cacheKey] = true
-        let elapsed = elapsedSeconds
+    func thumbsUp() { rate(positive: true) }
+    func thumbsDown() { rate(positive: false) }
+
+    private func rate(positive: Bool) {
+        guard thumbsAvailable else { return }
+        guard smapiLinked, let creds = smapiCredentials else {
+            showToast("Link Pandora for thumbs in Settings")
+            return
+        }
+        let key = thumbKey
+        thumbCache[key] = positive
         Task {
             do {
-                try await pandora.addFeedback(ref: ref, isPositive: true, elapsedSeconds: elapsed)
+                let shouldSkip = try await system.smapiRateCurrent(
+                    rating: positive ? .thumbsUp : .thumbsDown, credentials: creds)
+                // Thumbs-down auto-skips on Pandora; honor the service's hint,
+                // and skip anyway by convention if it didn't ask.
+                if !positive, !shouldSkip {
+                    try? await system.next()
+                }
             } catch {
-                thumbCache[ref.cacheKey] = nil
+                thumbCache[key] = nil
                 showToast("\(error)")
             }
         }
     }
 
-    func thumbsDown() {
-        guard let ref = currentTrackRef, pandoraConfigured else { return }
-        thumbCache[ref.cacheKey] = false
-        let elapsed = elapsedSeconds
-        Task {
-            do {
-                try await pandora.addFeedback(ref: ref, isPositive: false, elapsedSeconds: elapsed)
-                // Pandora convention: a thumbs-down skips the track.
-                try await system.next()
-            } catch {
-                thumbCache[ref.cacheKey] = nil
-                showToast("\(error)")
+    // MARK: - Pandora SMAPI device link
+
+    /// Starts the AppLink flow; returns the URL the user must open to authorize.
+    func beginPandoraLink() async -> String {
+        linkInProgress = true
+        do {
+            let link = try await system.smapiBeginLink()
+            linkPrompt = link
+            // Poll for authorization for up to ~5 minutes.
+            for _ in 0..<60 {
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+                do {
+                    let creds = try await system.smapiPollToken(link: link)
+                    if let data = try? JSONEncoder().encode(creds) {
+                        try? PandoraSMAPIKeychain.save(data)
+                    }
+                    smapiCredentials = creds
+                    smapiLinked = true
+                    linkInProgress = false
+                    linkPrompt = nil
+                    return "linked"
+                } catch let error as SMAPIError {
+                    if case .notLinkedRetry = error { continue }
+                    linkInProgress = false
+                    linkPrompt = nil
+                    return "\(error)"
+                }
             }
+            linkInProgress = false
+            linkPrompt = nil
+            return "Timed out waiting for authorization"
+        } catch {
+            linkInProgress = false
+            linkPrompt = nil
+            return "\(error)"
         }
+    }
+
+    func unlinkPandoraThumbs() {
+        PandoraSMAPIKeychain.delete()
+        smapiCredentials = nil
+        smapiLinked = false
     }
 
     // MARK: - Browse playback

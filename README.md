@@ -49,18 +49,34 @@ explicit framework/plugin/rpath flags for CLT's out-of-the-way `Testing.framewor
   reports Pandora's actual error message on failure.
 - Credentials are stored in the **login Keychain** (`SonoGlass.Pandora`), never in
   UserDefaults. "Remove account" deletes them.
-- While a Pandora station plays, thumbs appear in the popover and mini player.
-  Two firmware generations are handled automatically (see `PandoraTrackRef`):
-  - **Legacy track URIs** (`{trackToken}::ST:{station}::RINCON…`) → v5 tuner API
-    `station.addFeedback`.
-  - **Cloud-queue URIs** (2024+ firmware, `VC1::ST::ST:{station}::TR:{track}::…`)
-    carry catalog ids, not session tokens — feedback goes through Pandora's
-    listener GraphQL API (`www.pandora.com/api/v1/graphql/graphql`,
-    `feedback.setFeedback(targetId: "TR:…", sourceContextId: "ST:0:…")`), using the
-    same stored credentials. Verified live against real speakers.
-  - 👍 fills the icon for the rest of the track; 👎 sends feedback and then skips
-    (Pandora convention). Tracks already thumbed elsewhere show their rating from
-    the speaker's `<r:rating>` metadata.
+### Thumbs (how they actually reach Pandora)
+
+Modern Sonos firmware plays Pandora through Sonos's cloud-queue integration, and
+the track URI no longer carries a Pandora session `trackToken` — it only has
+catalog ids (`VC1::ST::ST:{station}::TR:{track}::…`). Pandora's direct feedback
+APIs (both the v5 tuner API and the listener GraphQL API) require a real
+trackToken to record a *new* thumb, so neither can be driven from these URIs.
+
+SonoGlass therefore rates the way the **official Sonos app** does — through the
+**Sonos Music API (SMAPI)** `rateItem` call against Pandora's SMAPI endpoint
+(`https://sonos.pandora.com/v2.1`), which takes the item id straight from the
+track URI. This needs a **one-time device link**:
+
+- **Settings → Pandora → "Link Pandora for thumbs"** runs the SMAPI **AppLink**
+  flow: it calls `getAppLink` (using your speakers' household id), shows you a
+  `pandora.com` URL to sign in and authorize, then polls `getDeviceAuthToken`
+  until you approve and stores the returned token in the Keychain
+  (`SonoGlass.PandoraSMAPI`).
+- After linking, 👍 sends `rateItem(rating: 1)` and 👎 sends `rateItem(rating: 2)`
+  (the thumbs-up/down values from Pandora's own Sonos presentation map). Thumbs
+  down auto-skips (the service returns `shouldSkip`, and we skip anyway by
+  convention). Tracks already thumbed show their state from the speaker's
+  `<r:rating>` metadata.
+- The `PandoraTrackRef` parser still recognizes the older `{trackToken}::ST:…`
+  URIs and the v5 tuner path is retained, so legacy firmware keeps working too.
+
+The Pandora **Stations** tab and station playback still use your Pandora
+username/password (v5 API) — that part never needed the SMAPI link.
   - Previous is hidden for Pandora radio (can't rewind); Next stays (it's a skip).
 - The **Stations** tab lists your full station list (`user.getStationList`) in
   Pandora's order (QuickMix/Thumbprint first). Selecting one plays it on the current
