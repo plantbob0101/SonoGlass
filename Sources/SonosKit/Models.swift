@@ -61,6 +61,8 @@ public struct NowPlayingState: Sendable, Equatable {
     public var stationURI: String = ""
     public var relTime: String = ""
     public var duration: String = ""
+    /// Service-reported rating from DIDL <r:rating> (true = thumbs up).
+    public var rating: Bool?
 
     public init() {}
 }
@@ -86,6 +88,8 @@ public struct DIDLItem: Sendable, Hashable, Identifiable {
     public var res: String             // raw playback URI
     public var resMD: String           // r:resMD — authoritative DIDL metadata for playback
     public var isContainer: Bool
+    /// <r:rating> connotation when present (true = positive).
+    public var rating: Bool?
 
     public init(id: String = "", title: String = "", artist: String = "", album: String = "",
                 albumArtURI: String = "", upnpClass: String = "", description: String = "",

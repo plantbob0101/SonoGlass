@@ -38,20 +38,36 @@ public actor PandoraClient {
     private var session: Session?
     private let urlSession: URLSession
 
+    // Listener web session (pandora.com) — used for cloud-queue-era feedback.
+    private var webCsrfToken = ""
+    private var webAuthToken = ""
+    private let webSession: URLSession
+
     public init() {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 15
         urlSession = URLSession(configuration: config)
+
+        let webConfig = URLSessionConfiguration.ephemeral
+        webConfig.timeoutIntervalForRequest = 15
+        webConfig.httpCookieAcceptPolicy = .always
+        webConfig.httpShouldSetCookies = true
+        webConfig.httpAdditionalHeaders = [
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
+        ]
+        webSession = URLSession(configuration: webConfig)
     }
 
     public func setCredentials(username: String, password: String) {
         credentials = (username, password)
         session = nil
+        webAuthToken = ""
     }
 
     public func clearCredentials() {
         credentials = nil
         session = nil
+        webAuthToken = ""
     }
 
     public var isConfigured: Bool { credentials != nil }
@@ -71,6 +87,88 @@ public actor PandoraClient {
             "isPositive": isPositive,
         ])
         pandoraLog.info("addFeedback ok (positive=\(isPositive))")
+    }
+
+    /// Format-aware feedback: legacy tokens go to the v5 tuner API, cloud-queue
+    /// catalog ids go to the listener GraphQL API on pandora.com.
+    public func addFeedback(ref: PandoraTrackRef, isPositive: Bool, elapsedSeconds: Int = 0) async throws {
+        switch ref {
+        case .legacy(let trackToken, let stationToken):
+            try await addFeedback(stationToken: stationToken, trackToken: trackToken,
+                                  isPositive: isPositive)
+        case .modern(let trackId, let stationId):
+            do {
+                try await graphQLFeedback(trackId: trackId, stationId: stationId,
+                                          isPositive: isPositive, elapsedSeconds: elapsedSeconds)
+            } catch {
+                // Session likely expired — one re-login and retry.
+                webAuthToken = ""
+                try await graphQLFeedback(trackId: trackId, stationId: stationId,
+                                          isPositive: isPositive, elapsedSeconds: elapsedSeconds)
+            }
+            pandoraLog.info("GraphQL setFeedback ok (positive=\(isPositive))")
+        }
+    }
+
+    // MARK: - Listener web API (pandora.com)
+
+    private func ensureWebSession() async throws {
+        guard webAuthToken.isEmpty else { return }
+        guard let credentials else { throw PandoraError.notConfigured }
+
+        // Prime cookies so pandora.com hands us a csrftoken.
+        let home = URL(string: "https://www.pandora.com/")!
+        _ = try? await webSession.data(from: home)
+        webCsrfToken = webSession.configuration.httpCookieStorage?
+            .cookies(for: home)?.first { $0.name == "csrftoken" }?.value ?? ""
+        guard !webCsrfToken.isEmpty else {
+            throw PandoraError.badResponse("no csrf token from pandora.com")
+        }
+
+        let (status, body) = try await webPost(path: "/api/v1/auth/login", json: [
+            "username": credentials.username,
+            "password": credentials.password,
+            "keepLoggedIn": true,
+        ])
+        guard status == 200,
+              let json = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any],
+              let token = json["authToken"] as? String else {
+            if let json = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any],
+               let message = json["message"] as? String {
+                throw PandoraError.api(code: json["errorCode"] as? Int ?? -1, message: message)
+            }
+            throw PandoraError.badResponse("web login failed (HTTP \(status))")
+        }
+        webAuthToken = token
+        pandoraLog.info("Pandora web login ok")
+    }
+
+    private func graphQLFeedback(trackId: String, stationId: String,
+                                 isPositive: Bool, elapsedSeconds: Int) async throws {
+        try await ensureWebSession()
+        let mutation = "mutation { feedback { setFeedback(targetId: \"\(trackId)\", "
+            + "sourceContextId: \"ST:0:\(stationId)\", value: \(isPositive ? "UP" : "DOWN"), "
+            + "deviceUuid: \"sonoglass\", elapsedTime: \(max(0, elapsedSeconds))) { status } } }"
+        let (status, body) = try await webPost(path: "/api/v1/graphql/graphql",
+                                               json: ["query": mutation])
+        guard status == 200, body.contains("\"status\":\"OK\""), !body.contains("\"errors\"") else {
+            pandoraLog.error("GraphQL feedback failed: HTTP \(status)")
+            throw PandoraError.badResponse("feedback rejected (HTTP \(status))")
+        }
+    }
+
+    private func webPost(path: String, json: [String: Any]) async throws -> (Int, String) {
+        var request = URLRequest(url: URL(string: "https://www.pandora.com\(path)")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(webCsrfToken, forHTTPHeaderField: "X-CsrfToken")
+        if !webAuthToken.isEmpty {
+            request.setValue(webAuthToken, forHTTPHeaderField: "X-AuthToken")
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: json)
+        let (data, response) = try await webSession.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        return (status, String(decoding: data, as: UTF8.self))
     }
 
     public func stationList() async throws -> [PandoraStation] {

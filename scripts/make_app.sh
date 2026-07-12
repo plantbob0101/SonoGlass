@@ -12,6 +12,8 @@ SANDBOX="${SANDBOX:-1}"
 # Pin to the macOS 26-series SDK: the 27 beta SDK macro-izes SwiftUI property
 # wrappers via plugins that only ship with full Xcode, not Command Line Tools.
 SDK="${SDK:-/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk}"
+# Build with CLT even if xcode-select points at an (unlicensed) Xcode install.
+export DEVELOPER_DIR="${DEVELOPER_DIR:-/Library/Developer/CommandLineTools}"
 
 swift build -c "$CONFIG" --sdk "$SDK"
 

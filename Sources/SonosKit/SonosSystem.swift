@@ -471,6 +471,7 @@ public actor SonosSystem {
         np.artist = item.artist
         np.album = item.album
         np.artURL = item.artURL(via: coordinatorIP)
+        np.rating = item.rating
     }
 
     // MARK: - Eventing

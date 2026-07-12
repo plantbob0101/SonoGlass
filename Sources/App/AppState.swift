@@ -54,8 +54,8 @@ final class AppState {
 
     // MARK: - Pandora detection
 
-    var currentTokens: PandoraTokens? {
-        PandoraTokens.parse(trackURI: nowPlaying.trackURI)
+    var currentTrackRef: PandoraTrackRef? {
+        PandoraTrackRef.parse(trackURI: nowPlaying.trackURI)
     }
 
     var isPandoraNow: Bool {
@@ -64,11 +64,18 @@ final class AppState {
         return sid == String(pandoraSid)
     }
 
-    var thumbsAvailable: Bool { isPandoraNow && currentTokens != nil }
+    var thumbsAvailable: Bool { isPandoraNow && currentTrackRef != nil }
 
     var currentThumb: Bool? {
-        guard let tokens = currentTokens else { return nil }
-        return thumbCache[tokens.trackToken]
+        guard let ref = currentTrackRef else { return nil }
+        // Optimistic local state wins; fall back to the speaker-reported rating.
+        return thumbCache[ref.cacheKey] ?? nowPlaying.rating
+    }
+
+    private var elapsedSeconds: Int {
+        let parts = nowPlaying.relTime.split(separator: ":").compactMap { Int($0) }
+        guard !parts.isEmpty else { return 0 }
+        return parts.reduce(0) { $0 * 60 + $1 }
     }
 
     // MARK: - Lifecycle
@@ -221,32 +228,30 @@ final class AppState {
     // MARK: - Pandora thumbs
 
     func thumbsUp() {
-        guard let tokens = currentTokens else { return }
-        guard pandoraConfigured else { return }
-        thumbCache[tokens.trackToken] = true
+        guard let ref = currentTrackRef, pandoraConfigured else { return }
+        thumbCache[ref.cacheKey] = true
+        let elapsed = elapsedSeconds
         Task {
             do {
-                try await pandora.addFeedback(stationToken: tokens.stationToken,
-                                              trackToken: tokens.trackToken, isPositive: true)
+                try await pandora.addFeedback(ref: ref, isPositive: true, elapsedSeconds: elapsed)
             } catch {
-                thumbCache[tokens.trackToken] = nil
+                thumbCache[ref.cacheKey] = nil
                 showToast("\(error)")
             }
         }
     }
 
     func thumbsDown() {
-        guard let tokens = currentTokens else { return }
-        guard pandoraConfigured else { return }
-        thumbCache[tokens.trackToken] = false
+        guard let ref = currentTrackRef, pandoraConfigured else { return }
+        thumbCache[ref.cacheKey] = false
+        let elapsed = elapsedSeconds
         Task {
             do {
-                try await pandora.addFeedback(stationToken: tokens.stationToken,
-                                              trackToken: tokens.trackToken, isPositive: false)
+                try await pandora.addFeedback(ref: ref, isPositive: false, elapsedSeconds: elapsed)
                 // Pandora convention: a thumbs-down skips the track.
                 try await system.next()
             } catch {
-                thumbCache[tokens.trackToken] = nil
+                thumbCache[ref.cacheKey] = nil
                 showToast("\(error)")
             }
         }
