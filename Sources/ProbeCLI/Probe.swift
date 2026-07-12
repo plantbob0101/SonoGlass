@@ -22,9 +22,12 @@ struct Probe {
         let ip = args[2]
         let smapi = PandoraSMAPI()
 
-        guard let household = await PandoraSMAPI.householdId(ip: ip) else {
+        guard var household = await PandoraSMAPI.householdId(ip: ip) else {
             print("FAIL: no household id from \(ip)")
             return
+        }
+        if let override = ProcessInfo.processInfo.environment["SONOGLASS_HHID"], !override.isEmpty {
+            household = override
         }
         let coordUDN = await coordinatorUDN(ip: ip) ?? "RINCON_000000000000"
         let deviceId = PandoraSMAPI.deviceId(fromUDN: coordUDN)
@@ -75,12 +78,26 @@ struct Probe {
                 print("getAppLink failed: \(error)")
             }
 
+        case "import":
+            // Copies the token captured by 'link' into the app's Keychain item.
+            guard let data = try? Data(contentsOf: tokenPath) else {
+                print("FAIL: no saved token at \(tokenPath.path)")
+                return
+            }
+            do {
+                try PandoraSMAPIKeychain.save(data)
+                print("✅ token imported into Keychain (SonoGlass.PandoraSMAPI)")
+            } catch {
+                print("❌ keychain save failed: \(error)")
+            }
+
         case "redeem":
-            // pandora-probe redeem <ip> <linkCode> — collect the token for an
-            // already-authorized link code.
-            guard args.count > 3 else { print("usage: redeem <ip> <linkCode>"); return }
+            // pandora-probe redeem <ip> <linkCode> <linkDeviceId> — collect the
+            // token for an already-authorized link code.
+            guard args.count > 4 else { print("usage: redeem <ip> <linkCode> <linkDeviceId>"); return }
             let link = SMAPIDeviceLink(regUrl: "", linkCode: args[3], showLinkCode: false,
-                                       householdId: household, deviceId: deviceId)
+                                       householdId: household, deviceId: deviceId,
+                                       linkDeviceId: args[4])
             do {
                 let creds = try await smapi.getDeviceAuthToken(link: link)
                 let data = try JSONEncoder().encode(creds)
