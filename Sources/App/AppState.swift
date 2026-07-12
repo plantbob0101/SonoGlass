@@ -85,7 +85,11 @@ final class AppState {
         Task { await system.start(manualIP: manualIP, preferredRoom: defaultRoom) }
         if defaults.bool(forKey: "showMiniAtLaunch") {
             miniPlayerVisible = true
-            updateMiniPlayer()
+            // Defer panel creation until the app has finished launching.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                self.updateMiniPlayer()
+            }
         }
     }
 
@@ -189,6 +193,7 @@ final class AppState {
             try? await Task.sleep(nanoseconds: 100_000_000)
             guard !Task.isCancelled else { return }
             try? await system.setVolume(Int(value))
+            volumeSendTask = nil
         }
     }
 
