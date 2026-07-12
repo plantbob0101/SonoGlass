@@ -40,6 +40,20 @@ actor AppleMusicRatings {
         }
     }
 
+    /// Top Apple Music catalog match for a title + artist (nil when no hit).
+    func findSong(title: String, artist: String) async throws -> String? {
+        try await ensureAuthorization()
+        var request = MusicCatalogSearchRequest(term: "\(title) \(artist)", types: [Song.self])
+        request.limit = 5
+        let response = try await request.response()
+        // Prefer a song whose artist matches; fall back to the top hit.
+        let match = response.songs.first {
+            $0.artistName.localizedCaseInsensitiveContains(artist)
+                || artist.localizedCaseInsensitiveContains($0.artistName)
+        } ?? response.songs.first
+        return match?.id.rawValue
+    }
+
     /// Current favorite state; nil when the song has no rating.
     func isFavorite(songID: String) async throws -> Bool? {
         try await ensureAuthorization()

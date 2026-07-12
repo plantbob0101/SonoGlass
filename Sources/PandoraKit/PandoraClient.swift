@@ -174,6 +174,21 @@ public actor PandoraClient {
         return "HTTP \(status): \(body)"
     }
 
+    /// Canonical pandora.com backstage page for a track pandoraId ("TR:n").
+    public func trackPageURL(pandoraId: String) async throws -> URL? {
+        try await ensureWebSession()
+        let sanitized = pandoraId.filter { $0.isLetter || $0.isNumber || $0 == ":" }
+        let query = "query { entity(id: \"\(sanitized)\") { ... on Track { url } } }"
+        let (status, body) = try await webPost(path: "/api/v1/graphql/graphql",
+                                               json: ["query": query])
+        guard status == 200,
+              let json = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any],
+              let data = json["data"] as? [String: Any],
+              let entity = data["entity"] as? [String: Any],
+              let urlString = entity["url"] as? String else { return nil }
+        return URL(string: urlString)
+    }
+
     private func webPost(path: String, json: [String: Any]) async throws -> (Int, String) {
         var request = URLRequest(url: URL(string: "https://www.pandora.com\(path)")!)
         request.httpMethod = "POST"
