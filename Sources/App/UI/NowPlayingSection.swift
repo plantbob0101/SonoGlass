@@ -81,8 +81,8 @@ struct ThumbsRow: View {
 
     var body: some View {
         let thumb = appState.currentThumb
-        let enabled = appState.smapiLinked && appState.thumbsAvailable
-        let hint = appState.smapiLinked ? "" : "Link Pandora for thumbs in Settings"
+        let enabled = appState.thumbsAvailable
+        let hint = "Thumbs need a playing Pandora track"
         HStack(spacing: 44) {
             Button {
                 appState.thumbsDown()

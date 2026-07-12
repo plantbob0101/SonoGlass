@@ -48,6 +48,7 @@ public actor SonosSystem {
 
     private var cachedFavorites: [DIDLItem] = []
     private let smapi = PandoraSMAPI()
+    private let muse = MuseClient()
 
     public init() {
         (updates, continuation) = AsyncStream.makeStream(of: SonosUpdate.self, bufferingPolicy: .unbounded)
@@ -609,6 +610,18 @@ public actor SonosSystem {
                 emit(.groups(groups, selectedID: selectedGroupID))
             }
         }
+    }
+
+    // MARK: - Thumbs via the player's local control websocket
+
+    /// Rates the currently playing track through the player's own music-service
+    /// session (the official-app mechanism). Returns true if the track should
+    /// be considered skipped by the service (thumbs-down auto-skip).
+    public func rateCurrentTrack(thumbsUp: Bool) async throws {
+        guard let group = selectedGroup, let c = group.coordinator else {
+            throw SonosError(message: "No Sonos group selected")
+        }
+        _ = try await muse.rateCurrentTrack(ip: c.ip, groupId: group.id, thumbsUp: thumbsUp)
     }
 
     // MARK: - Pandora SMAPI (thumbs on cloud-queue firmware)

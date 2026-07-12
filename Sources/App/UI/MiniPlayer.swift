@@ -98,12 +98,12 @@ struct MiniPlayerView: View {
                         miniButton(
                             symbol: appState.currentThumb == true ? "hand.thumbsup.fill" : "hand.thumbsup",
                             label: "Thumbs up",
-                            enabled: appState.smapiLinked && appState.thumbsAvailable
+                            enabled: appState.thumbsAvailable
                         ) { appState.thumbsUp() }
                         miniButton(
                             symbol: appState.currentThumb == false ? "hand.thumbsdown.fill" : "hand.thumbsdown",
                             label: "Thumbs down",
-                            enabled: appState.smapiLinked && appState.thumbsAvailable
+                            enabled: appState.thumbsAvailable
                         ) { appState.thumbsDown() }
                     }
                 }
