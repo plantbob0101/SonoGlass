@@ -44,6 +44,7 @@ public actor SonosSystem {
     private var sidKinds: [String: SonosUPnPService] = [:]
     private var eventsHealthy = false
     private var memberVols: [String: Int] = [:]
+    private var lastGroupVolumeSetAt = Date.distantPast
     private var pollTask: Task<Void, Never>?
     private var pollFailures = 0
     private var reachable = true
@@ -213,6 +214,15 @@ public actor SonosSystem {
         let c = try requireCoordinator()
         volume = value
         if let group, group.members.count > 1 {
+            // Sonos scales members against a snapshot of the per-room mix.
+            // Without a fresh snapshot at the start of each adjustment burst it
+            // scales against a STALE mix and reverts any trims made since.
+            if Date().timeIntervalSince(lastGroupVolumeSetAt) > 1.5 {
+                _ = try? await soap.call(ip: c.ip, service: .groupRenderingControl,
+                                         action: "SnapshotGroupVolume",
+                                         args: [("InstanceID", "0")])
+            }
+            lastGroupVolumeSetAt = Date()
             _ = try await soap.call(ip: c.ip, service: .groupRenderingControl, action: "SetGroupVolume",
                                     args: [("InstanceID", "0"), ("DesiredVolume", String(value))])
         } else {
