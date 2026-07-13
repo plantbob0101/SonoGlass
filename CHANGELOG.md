@@ -119,3 +119,19 @@ Apple Music library, one enriches Pandora.
   verification. If Pandora's protocol drifts again, start here.
 - `wsprobe` pattern (scratch): raw player-websocket experiments — this is how
   the `rate` command was discovered.
+
+***REMOVED BY PRIVACY REWRITE***
+
+- **Group editor** (⧉ next to the room picker): check a room to pull it into
+  the current group (`SetAVTransportURI x-rincon:{coordinatorUDN}` on the
+  joining player), uncheck to split it out
+  (`BecomeCoordinatorOfStandaloneGroup`). Group ids churn on regroup, so the
+  app re-reads topology and re-selects by coordinator UDN.
+- **Per-room volume trims**: when a group has >1 member, each room gets its
+  own mini slider under the master (member `GetVolume` polled alongside group
+  volume; per-player `SetVolume` with the same debounce discipline).
+- **Bug fixed the same hour:** moving the master slider *reverted* freshly-set
+  trims to old proportions. Cause: Sonos scales `SetGroupVolume` against its
+  snapshot of the room mix, and we never refreshed it — the official apps call
+  `SnapshotGroupVolume` at the start of every drag. Now sent at the start of
+  each adjustment burst (>1.5 s gap = new gesture). User-verified fixed.
