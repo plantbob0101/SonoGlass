@@ -3,6 +3,7 @@ import SonosKit
 
 struct PopoverView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         @Bindable var state = appState
@@ -100,7 +101,22 @@ struct PopoverView: View {
 
             Spacer()
 
-            SettingsLink {
+            Button {
+                // Menu bar apps aren't active when the popover clicks through,
+                // so the Settings window opens behind everything unless we
+                // activate and raise it ourselves.
+                openSettings()
+                NSApp.activate(ignoringOtherApps: true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    NSApp.activate(ignoringOtherApps: true)
+                    let settings = NSApp.windows.first {
+                        $0.identifier?.rawValue.contains("Settings") == true
+                            || $0.title.localizedCaseInsensitiveContains("settings")
+                    }
+                    settings?.makeKeyAndOrderFront(nil)
+                    settings?.orderFrontRegardless()
+                }
+            } label: {
                 Image(systemName: "gearshape")
             }
             .buttonStyle(.borderless)
