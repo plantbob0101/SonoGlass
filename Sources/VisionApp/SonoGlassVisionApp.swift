@@ -424,6 +424,15 @@ struct VisionSettingsSheet: View {
     @State private var password = ""
     @State private var status = ""
     @State private var busy = false
+    @State private var diagResult = ""
+
+    private var trackRefDescription: String {
+        switch appState.currentTrackRef {
+        case .modern(let track, let station): return "modern \(track) / ST:\(station.prefix(8))…"
+        case .legacy: return "legacy tokens"
+        case nil: return "none"
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -462,6 +471,36 @@ struct VisionSettingsSheet: View {
                 Section("Discovery") {
                     TextField("Speaker IP (manual fallback)", text: $manualIP)
                     Button("Reconnect") { appState.retryDiscovery() }
+                }
+                Section("Diagnostics") {
+                    LabeledContent("Build", value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?")
+                    LabeledContent("Pandora signed in", value: appState.pandoraConfigured ? "yes" : "no")
+                    LabeledContent("Pandora playing", value: appState.isPandoraNow ? "yes" : "no")
+                    LabeledContent("Track ref", value: trackRefDescription)
+                    Button("Test song page lookup") {
+                        diagResult = "looking up…"
+                        let ref = appState.currentTrackRef
+                        Task {
+                            guard case let .modern(trackId, _)? = ref else {
+                                diagResult = "no modern track ref (uri: \(String(appState.nowPlaying.trackURI.prefix(70))))"
+                                return
+                            }
+                            do {
+                                if let url = try await appState.pandora.trackPageURL(pandoraId: trackId) {
+                                    diagResult = "OK: \(url.absoluteString)"
+                                } else {
+                                    diagResult = "lookup returned nil (GraphQL gave no url)"
+                                }
+                            } catch {
+                                diagResult = "ERROR: \(error)"
+                            }
+                        }
+                    }
+                    if !diagResult.isEmpty {
+                        Text(diagResult)
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
+                    }
                 }
             }
             .navigationTitle("Settings")
