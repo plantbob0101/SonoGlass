@@ -194,26 +194,28 @@ final class AppState {
         return collectedCache[trackId]
     }
 
-    /// Adds the current Pandora track to the listener's Pandora collection.
-    func addCurrentToPandoraCollection() {
+    /// Opens the current track's ARTIST page on pandora.com — the browse-the-
+    /// artist's-songs view. Derived by trimming the song URL to /artist/{slug}.
+    func openPandoraArtistPage() {
         guard case let .modern(trackId, _)? = currentTrackRef, pandoraConfigured else {
             showToast("Add your Pandora account first")
             return
         }
-        let wasCollected = collectedCache[trackId] ?? false
-        collectedCache[trackId] = !wasCollected
-        let title = nowPlaying.title
         Task {
             do {
-                if wasCollected {
-                    try await pandora.uncollectTrack(pandoraId: trackId)
-                    showToast("Removed “\(title)” from Pandora")
+                guard let songURL = try await pandora.trackPageURL(pandoraId: trackId) else {
+                    showToast("Couldn't resolve the artist page")
+                    return
+                }
+                let parts = songURL.path.split(separator: "/")
+                // path: artist/{artist-slug}/{album}/{song}/{TRid}
+                if parts.count >= 2, parts[0] == "artist",
+                   let url = URL(string: "https://www.pandora.com/artist/\(parts[1])") {
+                    platformOpen(url)
                 } else {
-                    try await pandora.collectTrack(pandoraId: trackId)
-                    showToast("Added “\(title)” to Pandora collection")
+                    platformOpen(songURL)
                 }
             } catch {
-                collectedCache[trackId] = wasCollected
                 showToast("\(error)")
             }
         }
