@@ -170,7 +170,10 @@ struct VisionNowPlaying: View {
                     ratingButton("arrow.up.forward.app", "Find in Apple Music") {
                         appState.findCurrentInAppleMusic()
                     }
-                    ratingButton("globe", "Open on pandora.com") { appState.openPandoraSongPage() }
+                    ratingButton(appState.currentPandoraCollected == true ? "heart.fill" : "heart",
+                                 "Add to Pandora collection") {
+                        appState.addCurrentToPandoraCollection()
+                    }
                 }
             } else if appState.isAppleMusicNow {
                 HStack(spacing: 26) {
@@ -477,6 +480,22 @@ struct VisionSettingsSheet: View {
                     LabeledContent("Pandora signed in", value: appState.pandoraConfigured ? "yes" : "no")
                     LabeledContent("Pandora playing", value: appState.isPandoraNow ? "yes" : "no")
                     LabeledContent("Track ref", value: trackRefDescription)
+                    Button("Test add to Pandora collection") {
+                        diagResult = "collecting…"
+                        let ref = appState.currentTrackRef
+                        Task {
+                            guard case let .modern(trackId, _)? = ref else {
+                                diagResult = "no modern track ref"
+                                return
+                            }
+                            do {
+                                let body = try await appState.pandora.collectTrack(pandoraId: trackId)
+                                diagResult = "COLLECT OK: \(String(body.prefix(180)))"
+                            } catch {
+                                diagResult = "COLLECT ERROR: \(error)"
+                            }
+                        }
+                    }
                     Button("Test song page lookup") {
                         diagResult = "looking up…"
                         let ref = appState.currentTrackRef

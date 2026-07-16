@@ -103,6 +103,7 @@ public actor PandoraClient {
             } catch {
                 // Session likely expired — one re-login and retry.
                 webAuthToken = ""
+                PandoraWebSessionStore.delete()
                 try await graphQLFeedback(trackId: trackId, stationId: stationId,
                                           isPositive: isPositive, elapsedSeconds: elapsedSeconds)
             }
@@ -112,7 +113,34 @@ public actor PandoraClient {
 
     // MARK: - Listener web API (pandora.com)
 
+    private struct WebSession: Codable {
+        let csrf: String
+        let auth: String
+    }
+
+    private func loadCachedWebSession() {
+        guard webAuthToken.isEmpty,
+              let data = PandoraWebSessionStore.load(),
+              let cached = try? JSONDecoder().decode(WebSession.self, from: data) else { return }
+        webCsrfToken = cached.csrf
+        webAuthToken = cached.auth
+        // Re-plant the csrf cookie so the header check passes in a fresh process.
+        if let cookie = HTTPCookie(properties: [
+            .domain: ".pandora.com", .path: "/", .name: "csrftoken", .value: cached.csrf,
+        ]) {
+            webSession.configuration.httpCookieStorage?.setCookie(cookie)
+        }
+    }
+
+    private func persistWebSession() {
+        let session = WebSession(csrf: webCsrfToken, auth: webAuthToken)
+        if let data = try? JSONEncoder().encode(session) {
+            try? PandoraWebSessionStore.save(data)
+        }
+    }
+
     private func ensureWebSession() async throws {
+        if webAuthToken.isEmpty { loadCachedWebSession() }
         guard webAuthToken.isEmpty else { return }
         guard let credentials else { throw PandoraError.notConfigured }
 
@@ -140,6 +168,7 @@ public actor PandoraClient {
             throw PandoraError.badResponse("web login failed (HTTP \(status))")
         }
         webAuthToken = token
+        persistWebSession()
         pandoraLog.info("Pandora web login ok")
     }
 
@@ -172,6 +201,40 @@ public actor PandoraClient {
         let (status, body) = try await webPost(path: "/api/v1/graphql/graphql",
                                                json: ["query": query])
         return "HTTP \(status): \(body)"
+    }
+
+    /// Adds a track to the listener's Pandora collection ("My Music").
+    /// Returns the raw GraphQL response for diagnostics.
+    @discardableResult
+    public func collectTrack(pandoraId: String) async throws -> String {
+        try await collectMutation(pandoraId: pandoraId, collect: true)
+    }
+
+    @discardableResult
+    public func uncollectTrack(pandoraId: String) async throws -> String {
+        try await collectMutation(pandoraId: pandoraId, collect: false)
+    }
+
+    private func collectMutation(pandoraId: String, collect: Bool) async throws -> String {
+        try await ensureWebSession()
+        let clean = pandoraId.filter { $0.isLetter || $0.isNumber || $0 == ":" }
+        let field = collect ? "collect" : "uncollect"
+        let mutation = "mutation { \(field)(pandoraId: \"\(clean)\") { pandoraId isCollected } }"
+        var (status, body) = try await webPost(path: "/api/v1/graphql/graphql",
+                                               json: ["query": mutation])
+        // Retry once through a fresh login if the session died.
+        if status != 200 || body.contains("\"errors\"") {
+            if body.contains("authTokenExpired") || body.contains("UNAUTHENTICATED") || status == 401 {
+                webAuthToken = ""
+                PandoraWebSessionStore.delete()
+                (status, body) = try await webPost(path: "/api/v1/graphql/graphql",
+                                                   json: ["query": mutation])
+            }
+        }
+        guard status == 200, !body.contains("\"errors\"") else {
+            throw PandoraError.badResponse("collect failed: \(body.prefix(200))")
+        }
+        return body
     }
 
     /// Canonical pandora.com backstage page for a track pandoraId ("TR:n").

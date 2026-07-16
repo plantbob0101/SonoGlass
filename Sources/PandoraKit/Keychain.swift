@@ -112,3 +112,56 @@ public enum PandoraSMAPIKeychain {
         ] as CFDictionary)
     }
 }
+
+/// Persists the pandora.com web session (csrf + auth token) so app launches
+/// and CLI runs reuse one login instead of tripping Pandora's rate limit.
+/// Synchronizable: the headset can inherit the Mac's session via iCloud.
+public enum PandoraWebSessionStore {
+    private static let service = "SonoGlass.PandoraWebSession"
+    private static let account = "web-session"
+
+    public static func save(_ data: Data) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: true,
+        ]
+        let status = SecItemUpdate(query as CFDictionary,
+                                   [kSecValueData as String: data] as CFDictionary)
+        if status == errSecItemNotFound {
+            var add = query
+            add[kSecValueData as String] = data
+            let addStatus = SecItemAdd(add as CFDictionary, nil)
+            guard addStatus == errSecSuccess else {
+                throw NSError(domain: NSOSStatusErrorDomain, code: Int(addStatus))
+            }
+        } else if status != errSecSuccess {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+        }
+    }
+
+    public static func load() -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return nil }
+        return data
+    }
+
+    public static func delete() {
+        SecItemDelete([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
+        ] as CFDictionary)
+    }
+}

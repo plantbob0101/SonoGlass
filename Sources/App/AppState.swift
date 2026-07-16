@@ -186,6 +186,39 @@ final class AppState {
         }
     }
 
+    /// Optimistic collected state per Pandora pandoraId (TR:n).
+    var collectedCache: [String: Bool] = [:]
+
+    var currentPandoraCollected: Bool? {
+        guard case let .modern(trackId, _)? = currentTrackRef else { return nil }
+        return collectedCache[trackId]
+    }
+
+    /// Adds the current Pandora track to the listener's Pandora collection.
+    func addCurrentToPandoraCollection() {
+        guard case let .modern(trackId, _)? = currentTrackRef, pandoraConfigured else {
+            showToast("Add your Pandora account first")
+            return
+        }
+        let wasCollected = collectedCache[trackId] ?? false
+        collectedCache[trackId] = !wasCollected
+        let title = nowPlaying.title
+        Task {
+            do {
+                if wasCollected {
+                    try await pandora.uncollectTrack(pandoraId: trackId)
+                    showToast("Removed “\(title)” from Pandora")
+                } else {
+                    try await pandora.collectTrack(pandoraId: trackId)
+                    showToast("Added “\(title)” to Pandora collection")
+                }
+            } catch {
+                collectedCache[trackId] = wasCollected
+                showToast("\(error)")
+            }
+        }
+    }
+
     /// Fetch the server-side favorite state when an Apple Music track appears.
     private func refreshFavoriteState() {
         guard let songID = currentAppleMusicSongID, favoriteCache[songID] == nil else { return }
