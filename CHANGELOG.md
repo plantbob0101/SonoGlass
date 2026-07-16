@@ -135,3 +135,23 @@ Apple Music library, one enriches Pandora.
   snapshot of the room mix, and we never refreshed it — the official apps call
   `SnapshotGroupVolume` at the start of every drag. Now sent at the start of
   each adjustment burst (>1.5 s gap = new gesture). User-verified fixed.
+
+## 2026-07-15 — Vision Pro (SonoGlassVision)
+
+Native visionOS target sharing the entire protocol stack (SonosKit/PandoraKit/
+MusicKit/player-websocket thumbs port unchanged; AppState platform-shimmed).
+Spatial glass window: now-playing, thumbs, Apple Music funnel, group volume +
+per-room trims, group editor, favorites/stations, layered app icon, on-device
+Pandora sign-in + iCloud-synced credentials/session. Discovery via Bonjour +
+manual IP (raw SSDP multicast is entitlement-gated on iOS-family platforms).
+
+**Hard-won lesson:** pandora.com's SPA client-side-404s EVERY route (song,
+search, artist) in Vision Pro Safari, while identical URLs work via curl and
+Mac Safari — platform sniffing on their end. Attempted fixes that failed:
+different route shapes, artist-only URLs, collect-via-GraphQL (mutation arg
+schema unknown; also wrong UX). The fix that works: an **in-app WKWebView
+window masquerading as Windows Chrome** (`customUserAgent` + desktop content
+mode) — Pandora serves the full desktop site inside SonoGlass. Login persists
+in the default website data store. Also: visionOS keeps stale app processes
+alive behind open windows — always close/reopen after installing a build
+(diagnosable via the build number in ⚙️ → Diagnostics).
