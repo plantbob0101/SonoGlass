@@ -11,7 +11,7 @@ struct SonoGlassVisionApp: App {
             VisionRootView()
                 .environment(appState)
         }
-        .defaultSize(width: 460, height: 620)
+        .defaultSize(width: 560, height: 860)
     }
 }
 
@@ -31,9 +31,9 @@ struct VisionRootView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .padding(.bottom, 10)
+                .padding(.horizontal, 28)
+                .padding(.top, 22)
+                .padding(.bottom, 14)
 
                 switch appState.tab {
                 case .nowPlaying:
@@ -109,9 +109,10 @@ struct VisionNowPlaying: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
-        VStack(spacing: 16) {
+        ScrollView {
+        VStack(spacing: 26) {
             // Art + track info
-            VStack(spacing: 12) {
+            VStack(spacing: 14) {
                 AsyncImage(url: appState.nowPlaying.artURL) { phase in
                     switch phase {
                     case .success(let image):
@@ -125,8 +126,8 @@ struct VisionNowPlaying: View {
                         }
                     }
                 }
-                .frame(width: 180, height: 180)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .frame(width: 230, height: 230)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
 
                 VStack(spacing: 3) {
                     MarqueeText(
@@ -141,12 +142,12 @@ struct VisionNowPlaying: View {
                             .foregroundStyle(.tertiary)
                     }
                 }
-                .frame(maxWidth: 320)
+                .frame(maxWidth: 400)
             }
 
             // Ratings / funnel row
             if appState.isPandoraNow {
-                HStack(spacing: 18) {
+                HStack(spacing: 26) {
                     ratingButton(appState.currentThumb == false ? "hand.thumbsdown.fill" : "hand.thumbsdown",
                                  "Thumbs down") { appState.thumbsDown() }
                     ratingButton(appState.currentThumb == true ? "hand.thumbsup.fill" : "hand.thumbsup",
@@ -157,7 +158,7 @@ struct VisionNowPlaying: View {
                     ratingButton("globe", "Open on pandora.com") { appState.openPandoraSongPage() }
                 }
             } else if appState.isAppleMusicNow {
-                HStack(spacing: 18) {
+                HStack(spacing: 26) {
                     ratingButton(appState.currentFavorite == true ? "star.fill" : "star",
                                  "Favorite on Apple Music") { appState.toggleFavorite() }
                     ratingButton("arrow.up.forward.app", "Open in Apple Music") {
@@ -167,38 +168,48 @@ struct VisionNowPlaying: View {
             }
 
             // Transport
-            HStack(spacing: 26) {
+            HStack(spacing: 40) {
                 if !appState.isPandoraNow {
                     Button { appState.previous() } label: {
                         Image(systemName: "backward.fill")
+                            .font(.title3)
+                            .frame(width: 40, height: 40)
                     }
                     .buttonStyle(.borderless)
                 }
                 Button { appState.togglePlayPause() } label: {
                     Image(systemName: appState.nowPlaying.transport.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.title)
-                        .frame(width: 44, height: 44)
+                        .font(.largeTitle)
+                        .frame(width: 60, height: 60)
                 }
                 .buttonStyle(.borderedProminent)
                 .clipShape(Circle())
                 Button { appState.next() } label: {
                     Image(systemName: "forward.fill")
+                        .font(.title3)
+                        .frame(width: 40, height: 40)
                 }
                 .buttonStyle(.borderless)
             }
 
             VisionVolume()
+
+            Divider().padding(.horizontal, 20)
+
             VisionGroupPicker()
+                .padding(.bottom, 30)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 34)
+        .padding(.top, 6)
+        }
     }
 
     private func ratingButton(_ symbol: String, _ label: String,
                               action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.title3)
-                .frame(width: 30, height: 30)
+                .font(.title2)
+                .frame(width: 40, height: 40)
         }
         .buttonStyle(.bordered)
         .clipShape(Circle())
@@ -212,8 +223,8 @@ struct VisionVolume: View {
 
     var body: some View {
         @Bindable var state = appState
-        VStack(spacing: 8) {
-            HStack(spacing: 12) {
+        VStack(spacing: 18) {
+            HStack(spacing: 16) {
                 Button { appState.toggleMute() } label: {
                     Image(systemName: appState.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 }
@@ -232,11 +243,11 @@ struct VisionVolume: View {
                 ForEach(group.members.sorted {
                     $0.roomName.localizedCaseInsensitiveCompare($1.roomName) == .orderedAscending
                 }) { member in
-                    HStack(spacing: 12) {
+                    HStack(spacing: 16) {
                         Text(member.roomName)
-                            .font(.caption)
+                            .font(.callout)
                             .foregroundStyle(.secondary)
-                            .frame(width: 110, alignment: .leading)
+                            .frame(width: 130, alignment: .leading)
                             .lineLimit(1)
                         Slider(
                             value: Binding(
@@ -247,10 +258,11 @@ struct VisionVolume: View {
                             onEditingChanged: { if !$0 { appState.memberVolumeCommitted(member) } }
                         )
                         Text("\(appState.memberVolumes[member.udn] ?? 0)")
-                            .font(.caption2.monospacedDigit())
+                            .font(.caption.monospacedDigit())
                             .foregroundStyle(.tertiary)
-                            .frame(width: 26, alignment: .trailing)
+                            .frame(width: 30, alignment: .trailing)
                     }
+                    .frame(minHeight: 36)
                 }
             }
         }
