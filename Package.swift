@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "SonoGlass",
-    platforms: [.macOS("26.0")],
+    platforms: [.macOS("26.0"), .visionOS("26.0")],
     products: [
         .library(name: "SonosKit", targets: ["SonosKit"]),
         .library(name: "PandoraKit", targets: ["PandoraKit"]),
