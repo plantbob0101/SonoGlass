@@ -159,28 +159,28 @@ final class AppState {
         }
     }
 
-    /// Opens the current Pandora track's backstage page on pandora.com
-    /// (collect it, browse similar artists…). Falls back to a search page.
-    func openPandoraSongPage() {
-        let title = nowPlaying.title
-        let artist = nowPlaying.artist
-        let ref = currentTrackRef
-        Task {
-            if pandoraConfigured, case let .modern(trackId, _)? = ref {
-                do {
-                    if let url = try await pandora.trackPageURL(pandoraId: trackId) {
-                        platformOpen(url)
-                        return
-                    }
-                    showToast("Pandora page lookup returned nothing")
-                } catch {
-                    // Surface the real reason before falling back to search.
-                    showToast("Pandora lookup failed: \(error)")
+    /// Resolves the current Pandora track's backstage page URL (or a search
+    /// page as fallback). Shared by the Mac (Safari) and visionOS (in-app web).
+    func resolvePandoraSongPageURL() async -> URL? {
+        if pandoraConfigured, case let .modern(trackId, _)? = currentTrackRef {
+            do {
+                if let url = try await pandora.trackPageURL(pandoraId: trackId) {
+                    return url
                 }
+            } catch {
+                showToast("Pandora lookup failed: \(error)")
             }
-            let query = "\(title) \(artist)"
-                .addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
-            if let url = URL(string: "https://www.pandora.com/search/\(query)/all") {
+        }
+        let query = "\(nowPlaying.title) \(nowPlaying.artist)"
+            .addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        return URL(string: "https://www.pandora.com/search/\(query)/all")
+    }
+
+    /// Opens the current Pandora track's backstage page on pandora.com
+    /// (collect it, browse similar artists…).
+    func openPandoraSongPage() {
+        Task {
+            if let url = await resolvePandoraSongPageURL() {
                 platformOpen(url)
             }
         }
