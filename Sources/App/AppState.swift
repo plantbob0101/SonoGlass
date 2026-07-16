@@ -166,14 +166,21 @@ final class AppState {
         let artist = nowPlaying.artist
         let ref = currentTrackRef
         Task {
-            if pandoraConfigured, case let .modern(trackId, _)? = ref,
-               let url = try? await pandora.trackPageURL(pandoraId: trackId) {
-                platformOpen(url)
-                return
+            if pandoraConfigured, case let .modern(trackId, _)? = ref {
+                do {
+                    if let url = try await pandora.trackPageURL(pandoraId: trackId) {
+                        platformOpen(url)
+                        return
+                    }
+                    showToast("Pandora page lookup returned nothing")
+                } catch {
+                    // Surface the real reason before falling back to search.
+                    showToast("Pandora lookup failed: \(error)")
+                }
             }
             let query = "\(title) \(artist)"
                 .addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
-            if let url = URL(string: "https://www.pandora.com/search/\(query)") {
+            if let url = URL(string: "https://www.pandora.com/search/\(query)/all") {
                 platformOpen(url)
             }
         }
