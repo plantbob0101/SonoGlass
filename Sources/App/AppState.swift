@@ -173,7 +173,7 @@ final class AppState {
             }
             let query = "\(title) \(artist)"
                 .addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
-            if let url = URL(string: "https://www.pandora.com/search/\(query)/tracks") {
+            if let url = URL(string: "https://www.pandora.com/search/\(query)") {
                 platformOpen(url)
             }
         }
@@ -194,6 +194,7 @@ final class AppState {
     init() {
         if let creds = PandoraKeychain.load() {
             pandoraConfigured = true
+            try? PandoraKeychain.save(creds)   // migrate to the iCloud-synced item
             Task { await pandora.setCredentials(username: creds.username, password: creds.password) }
         }
         if let data = PandoraSMAPIKeychain.load(),
@@ -224,8 +225,12 @@ final class AppState {
             case .discovery(let phase):
                 discovery = phase
             case .groups(let newGroups, let selectedID):
+                let hadNone = groups.isEmpty
                 groups = newGroups
                 selectedGroupID = selectedID
+                if hadNone && !newGroups.isEmpty {
+                    refreshBrowseLists()   // first discovery: load favorites/stations
+                }
             case .nowPlaying(let np):
                 nowPlaying = np
                 refreshFavoriteState()

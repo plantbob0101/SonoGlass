@@ -17,6 +17,7 @@ struct SonoGlassVisionApp: App {
 
 struct VisionRootView: View {
     @Environment(AppState.self) private var appState
+    @State private var showingSettings = false
 
     var body: some View {
         @Bindable var state = appState
@@ -24,13 +25,23 @@ struct VisionRootView: View {
             if appState.groups.isEmpty {
                 emptyState
             } else {
-                Picker("View", selection: $state.tab) {
-                    ForEach(availableTabs, id: \.self) { tab in
-                        Text(tab.rawValue).tag(tab)
+                HStack(spacing: 12) {
+                    Picker("View", selection: $state.tab) {
+                        ForEach(availableTabs, id: \.self) { tab in
+                            Text(tab.rawValue).tag(tab)
+                        }
                     }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+
+                    Button {
+                        showingSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Settings")
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
                 .padding(.horizontal, 28)
                 .padding(.top, 22)
                 .padding(.bottom, 14)
@@ -56,6 +67,10 @@ struct VisionRootView: View {
                     .background(.regularMaterial, in: Capsule())
                     .padding(.bottom, 18)
             }
+        }
+        .sheet(isPresented: $showingSettings) {
+            VisionSettingsSheet()
+                .environment(appState)
         }
         .onAppear { appState.popoverOpened() }
     }
@@ -366,6 +381,7 @@ struct VisionBrowseList: View {
             }
         }
         .listStyle(.plain)
+        .onAppear { appState.refreshBrowseLists() }
     }
 
     private func row(title: String, subtitle: String, artURL: URL?,
@@ -394,5 +410,67 @@ struct VisionBrowseList: View {
             }
         }
         .buttonStyle(.plain)
+    }
+}
+
+
+/// Pandora account + speaker IP for the headset. Credentials normally arrive
+/// via iCloud Keychain from the Mac; this is the manual path.
+struct VisionSettingsSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage("manualIP") private var manualIP = ""
+    @State private var email = ""
+    @State private var password = ""
+    @State private var status = ""
+    @State private var busy = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Pandora account") {
+                    if appState.pandoraConfigured {
+                        Label("Signed in", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Button("Remove account", role: .destructive) {
+                            appState.removePandoraAccount()
+                            status = ""
+                        }
+                    } else {
+                        TextField("Email", text: $email)
+                            .textContentType(.username)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        SecureField("Password", text: $password)
+                        Button {
+                            busy = true
+                            status = "Signing in…"
+                            let user = email, pass = password
+                            Task {
+                                status = await appState.savePandoraCredentials(username: user, password: pass)
+                                busy = false
+                            }
+                        } label: {
+                            if busy { ProgressView() } else { Text("Verify & Save") }
+                        }
+                        .disabled(email.isEmpty || password.isEmpty || busy)
+                    }
+                    if !status.isEmpty {
+                        Text(status).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Section("Discovery") {
+                    TextField("Speaker IP (manual fallback)", text: $manualIP)
+                    Button("Reconnect") { appState.retryDiscovery() }
+                }
+            }
+            .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .frame(minWidth: 420, minHeight: 440)
     }
 }
