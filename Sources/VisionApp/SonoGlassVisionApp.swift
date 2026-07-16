@@ -170,9 +170,6 @@ struct VisionNowPlaying: View {
                     ratingButton("arrow.up.forward.app", "Find in Apple Music") {
                         appState.findCurrentInAppleMusic()
                     }
-                    ratingButton("music.mic", "See this artist on Pandora") {
-                        appState.openPandoraArtistPage()
-                    }
                 }
             } else if appState.isAppleMusicNow {
                 HStack(spacing: 26) {
