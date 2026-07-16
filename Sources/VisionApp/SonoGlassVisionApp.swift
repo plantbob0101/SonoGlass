@@ -12,6 +12,11 @@ struct SonoGlassVisionApp: App {
                 .environment(appState)
         }
         .defaultSize(width: 560, height: 860)
+
+        WindowGroup(id: "pandoraWeb", for: URL.self) { $url in
+            PandoraWebWindow(url: url ?? URL(string: "https://www.pandora.com")!)
+        }
+        .defaultSize(width: 1200, height: 850)
     }
 }
 
@@ -122,6 +127,7 @@ struct ManualIPField: View {
 
 struct VisionNowPlaying: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         ScrollView {
@@ -169,6 +175,13 @@ struct VisionNowPlaying: View {
                                  "Thumbs up") { appState.thumbsUp() }
                     ratingButton("arrow.up.forward.app", "Find in Apple Music") {
                         appState.findCurrentInAppleMusic()
+                    }
+                    ratingButton("globe", "Browse this song on Pandora") {
+                        Task {
+                            if let url = await appState.resolvePandoraSongPageURL() {
+                                openWindow(id: "pandoraWeb", value: url)
+                            }
+                        }
                     }
                 }
             } else if appState.isAppleMusicNow {
