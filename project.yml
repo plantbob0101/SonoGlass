@@ -2,6 +2,7 @@ name: SonoGlass
 options:
   deploymentTarget:
     macOS: "26.0"
+    visionOS: "26.0"
   createIntermediateGroups: true
 
 packages:
@@ -32,3 +33,33 @@ targets:
         SWIFT_VERSION: "6.0"
         MACOSX_DEPLOYMENT_TARGET: "26.0"
         DEAD_CODE_STRIPPING: YES
+
+  SonoGlassVision:
+    type: application
+    platform: visionOS
+    scheme: {}
+    sources:
+      - path: Sources/App
+        excludes:
+          - "SonoGlassApp.swift"
+          - "UI/PopoverView.swift"
+          - "UI/NowPlayingSection.swift"
+          - "UI/BrowseSections.swift"
+          - "UI/MiniPlayer.swift"
+          - "UI/SettingsView.swift"
+      - path: Sources/VisionApp
+    dependencies:
+      - package: SonoGlassCore
+        products:
+          - SonosKit
+          - PandoraKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sonoglass.app
+        PRODUCT_NAME: SonoGlassVision
+        INFOPLIST_FILE: Resources/Info-vision.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "6.0"
+        XROS_DEPLOYMENT_TARGET: "26.0"
+        TARGETED_DEVICE_FAMILY: "7"

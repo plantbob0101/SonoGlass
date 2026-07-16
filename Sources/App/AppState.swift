@@ -1,5 +1,8 @@
 import SwiftUI
 import Observation
+#if canImport(UIKit)
+import UIKit
+#endif
 import SonosKit
 import PandoraKit
 
@@ -51,7 +54,9 @@ final class AppState {
     let pandora = PandoraClient()
     let appleMusic = AppleMusicRatings()
 
+    #if os(macOS)
     @ObservationIgnored private var miniPlayer: MiniPlayerController?
+    #endif
     @ObservationIgnored private var volumeSendTask: Task<Void, Never>?
     @ObservationIgnored private var toastTask: Task<Void, Never>?
 
@@ -131,7 +136,7 @@ final class AppState {
     func openInAppleMusic() {
         guard let songID = currentAppleMusicSongID,
               let url = URL(string: "music://music.apple.com/us/song/\(songID)") else { return }
-        NSWorkspace.shared.open(url)
+        platformOpen(url)
     }
 
     /// For a Pandora track: search Apple Music for the same song and open the
@@ -144,7 +149,7 @@ final class AppState {
             do {
                 if let id = try await appleMusic.findSong(title: title, artist: artist),
                    let url = URL(string: "music://music.apple.com/us/song/\(id)") {
-                    NSWorkspace.shared.open(url)
+                    platformOpen(url)
                 } else {
                     showToast("No Apple Music match for “\(title)”")
                 }
@@ -163,13 +168,13 @@ final class AppState {
         Task {
             if pandoraConfigured, case let .modern(trackId, _)? = ref,
                let url = try? await pandora.trackPageURL(pandoraId: trackId) {
-                NSWorkspace.shared.open(url)
+                platformOpen(url)
                 return
             }
             let query = "\(title) \(artist)"
                 .addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
             if let url = URL(string: "https://www.pandora.com/search/\(query)/tracks") {
-                NSWorkspace.shared.open(url)
+                platformOpen(url)
             }
         }
     }
@@ -201,6 +206,7 @@ final class AppState {
         let manualIP = defaults.string(forKey: "manualIP")
         let defaultRoom = defaults.string(forKey: "defaultRoom")
         Task { await system.start(manualIP: manualIP, preferredRoom: defaultRoom) }
+        #if os(macOS)
         if defaults.bool(forKey: "showMiniAtLaunch") {
             miniPlayerVisible = true
             // Defer panel creation until the app has finished launching.
@@ -209,6 +215,7 @@ final class AppState {
                 self.updateMiniPlayer()
             }
         }
+        #endif
     }
 
     private func consumeUpdates() async {
@@ -519,6 +526,7 @@ final class AppState {
 
     // MARK: - Mini player
 
+    #if os(macOS)
     func toggleMiniPlayer() {
         miniPlayerVisible.toggle()
         updateMiniPlayer()
@@ -528,6 +536,7 @@ final class AppState {
         if miniPlayer == nil { miniPlayer = MiniPlayerController() }
         miniPlayer?.setVisible(miniPlayerVisible, appState: self)
     }
+    #endif
 
     // MARK: - Misc
 
@@ -544,8 +553,7 @@ final class AppState {
     /// Option-click debug affordance: copies raw station + track URIs.
     func copyDebugURIs() {
         let text = "stationURI: \(nowPlaying.stationURI)\ntrackURI: \(nowPlaying.trackURI)"
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        platformSetClipboard(text)
         showToast("Raw URIs copied")
     }
 
@@ -566,8 +574,28 @@ final class AppState {
         lines.append("Track: \(nowPlaying.title) — \(nowPlaying.artist)")
         lines.append("stationURI: \(nowPlaying.stationURI)")
         lines.append("trackURI: \(nowPlaying.trackURI)")
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+        platformSetClipboard(lines.joined(separator: "\n"))
         showToast("Diagnostics copied")
     }
+}
+
+// MARK: - Platform shims
+
+@MainActor
+func platformOpen(_ url: URL) {
+    #if os(macOS)
+    NSWorkspace.shared.open(url)
+    #else
+    UIApplication.shared.open(url)
+    #endif
+}
+
+@MainActor
+func platformSetClipboard(_ text: String) {
+    #if os(macOS)
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(text, forType: .string)
+    #else
+    UIPasteboard.general.string = text
+    #endif
 }
