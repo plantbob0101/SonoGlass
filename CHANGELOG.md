@@ -1,8 +1,9 @@
 # SonoGlass — Engineering Log
 
 What was built, in order, and **why** — including the dead ends, because the
-dead ends are where the knowledge is. Newest last. (Commit hashes refer to
-this repo's history.)
+dead ends are where the knowledge is. Newest last. (Commit hashes below are
+from the original private history, which was re-authored before going public —
+treat them as narrative labels, not links.)
 
 ## 2026-07-11 — Day one: the whole app (`d3942a1` → `a0676e5`)
 
