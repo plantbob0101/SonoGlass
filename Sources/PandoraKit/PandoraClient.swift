@@ -61,13 +61,17 @@ public actor PandoraClient {
     public func setCredentials(username: String, password: String) {
         credentials = (username, password)
         session = nil
+        webCsrfToken = ""
         webAuthToken = ""
     }
 
     public func clearCredentials() {
         credentials = nil
         session = nil
+        webCsrfToken = ""
         webAuthToken = ""
+        PandoraWebSessionStore.delete()
+        webSession.configuration.httpCookieStorage?.removeCookies(since: .distantPast)
     }
 
     public var isConfigured: Bool { credentials != nil }
