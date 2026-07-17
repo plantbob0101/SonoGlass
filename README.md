@@ -56,6 +56,10 @@ scripts/make_app.sh            # release build → dist/SonoGlass.app (sandboxed
 open dist/SonoGlass.app
 ```
 
+Release artifacts use Apple's hardened runtime. The team-signed build also
+refuses to copy a bundle into `dist/` if it contains the debugger entitlement
+(`get-task-allow`) or is missing runtime hardening.
+
 Variants:
 
 ```sh

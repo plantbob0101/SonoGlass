@@ -30,6 +30,11 @@ TEAM=<your-team-id> scripts/make_app_signed.sh          # signed Mac app
 # visionOS: xcodegen && xcodebuild -scheme SonoGlassVision ... (see CHANGELOG)
 ```
 
+The signed script only publishes a hardened Release bundle and fails closed if
+Xcode injects the development-only `get-task-allow` entitlement. Do not weaken
+that check for a distributable artifact; use Xcode's Debug configuration for
+local debugging instead.
+
 You'll need to change the bundle identifier (`com.sonoglass.app`) to your own
 before signing — Apple App IDs are unique per developer account.
 

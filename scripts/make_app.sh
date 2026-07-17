@@ -26,11 +26,21 @@ cp "$BIN" "$APP/Contents/MacOS/SonoGlass"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
+SIGN_ARGS=(--force --sign -)
+if [[ "$CONFIG" == "release" ]]; then
+  SIGN_ARGS+=(--options runtime)
+fi
+
 if [[ "$SANDBOX" == "1" ]]; then
-  codesign --force --sign - --entitlements Resources/SonoGlass.entitlements "$APP"
+  codesign "${SIGN_ARGS[@]}" --entitlements Resources/SonoGlass.entitlements "$APP"
 else
-  codesign --force --sign - "$APP"
+  codesign "${SIGN_ARGS[@]}" "$APP"
 fi
 
 echo "Built $APP"
+if [[ "$CONFIG" == "release" ]] &&
+   ! codesign -dv --verbose=4 "$APP" 2>&1 | grep -q 'flags=.*runtime'; then
+  echo "ERROR: release artifact is missing hardened runtime"
+  exit 1
+fi
 codesign -d --entitlements - "$APP" 2>/dev/null | tail -5 || true
