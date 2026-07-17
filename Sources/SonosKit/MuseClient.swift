@@ -32,23 +32,13 @@ public actor MuseClient {
                         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
             guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
                   let trust = challenge.protectionSpace.serverTrust,
-                  Self.isPrivateAddress(challenge.protectionSpace.host) else {
+                  SonosAddress.privateIPv4(challenge.protectionSpace.host) != nil else {
                 completionHandler(.performDefaultHandling, nil)
                 return
             }
             completionHandler(.useCredential, URLCredential(trust: trust))
         }
 
-        static func isPrivateAddress(_ host: String) -> Bool {
-            var addr = in_addr()
-            guard inet_pton(AF_INET, host, &addr) == 1 else { return false }
-            let ip = UInt32(bigEndian: addr.s_addr)
-            // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16
-            return (ip & 0xFF00_0000) == 0x0A00_0000
-                || (ip & 0xFFF0_0000) == 0xAC10_0000
-                || (ip & 0xFFFF_0000) == 0xC0A8_0000
-                || (ip & 0xFFFF_0000) == 0xA9FE_0000
-        }
     }
 
     private let session: URLSession
@@ -62,6 +52,9 @@ public actor MuseClient {
     /// One-shot command: connect, send [header, body], await first response, close.
     public func command(ip: String, namespace: String, command: String,
                         groupId: String, body: [String: Any] = [:]) async throws -> Response {
+        guard let ip = SonosAddress.privateIPv4(ip) else {
+            throw SonosError(message: "Sonos address must be a private IPv4 address")
+        }
         var request = URLRequest(url: URL(string: "wss://\(ip):1443/websocket/api")!)
         request.setValue("123e4567-e89b-12d3-a456-426655440000", forHTTPHeaderField: "X-Sonos-Api-Key")
         request.setValue("v1.api.smartspeaker.audio", forHTTPHeaderField: "Sec-WebSocket-Protocol")

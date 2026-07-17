@@ -90,7 +90,13 @@ public actor SonosSystem {
         async let ssdp = SSDPDiscovery.search(duration: 3.0)
         async let bonjour = BonjourDiscovery.search(duration: 3.0)
         var ips = await ssdp.union(await bonjour)
-        if let manualIP, !manualIP.isEmpty { ips.insert(manualIP) }
+        if let manualIP, !manualIP.isEmpty {
+            if let validated = SonosAddress.privateIPv4(manualIP) {
+                ips.insert(validated)
+            } else {
+                emit(.toast("Manual speaker address must be a private IPv4 address"))
+            }
+        }
         // Keep any IPs we already know about as a fallback.
         for group in groups {
             for member in group.members { ips.insert(member.ip) }

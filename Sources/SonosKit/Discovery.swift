@@ -75,22 +75,27 @@ public enum SSDPDiscovery {
             }
             guard n > 0 else { continue }
             let text = String(decoding: buffer[0..<n], as: UTF8.self)
-            // Pull the IP out of the LOCATION header; fall back to the sender address.
-            var ip: String?
+            var senderAddress = from.sin_addr
+            var senderBuffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+            let senderIP: String? = if inet_ntop(AF_INET, &senderAddress, &senderBuffer,
+                                                 socklen_t(INET_ADDRSTRLEN)) != nil {
+                SonosAddress.privateIPv4(String(decoding: senderBuffer
+                    .prefix(while: { $0 != 0 }).map(UInt8.init(bitPattern:)), as: UTF8.self))
+            } else {
+                nil
+            }
+
+            // LOCATION must name the private host that actually sent the response.
+            var advertisedIP: String?
             for line in text.split(separator: "\r\n") {
                 if line.lowercased().hasPrefix("location:") {
                     let value = line.dropFirst("location:".count).trimmingCharacters(in: .whitespaces)
-                    ip = URL(string: value)?.host
+                    advertisedIP = URL(string: value)?.host.flatMap(SonosAddress.privateIPv4)
                 }
             }
-            if ip == nil {
-                var addr = from.sin_addr
-                var str = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-                if inet_ntop(AF_INET, &addr, &str, socklen_t(INET_ADDRSTRLEN)) != nil {
-                    ip = String(decoding: str.prefix(while: { $0 != 0 }).map(UInt8.init(bitPattern:)), as: UTF8.self)
-                }
-            }
-            if let ip { found.insert(ip) }
+            guard let senderIP else { continue }
+            if let advertisedIP, advertisedIP != senderIP { continue }
+            found.insert(senderIP)
         }
         discoveryLog.info("SSDP: found \(found.count) responder(s)")
         return found
@@ -116,7 +121,7 @@ public enum BonjourDiscovery {
                            case let .hostPort(host, _) = remote {
                             var ip = "\(host)"
                             if let pct = ip.firstIndex(of: "%") { ip = String(ip[..<pct]) }
-                            if ip.contains(".") { collector.insert(ip) }
+                            if let ip = SonosAddress.privateIPv4(ip) { collector.insert(ip) }
                         }
                         conn.cancel()
                     case .failed, .cancelled:
@@ -159,6 +164,9 @@ public struct DeviceDescription: Sendable {
     public let modelName: String
 
     public static func fetch(ip: String) async throws -> DeviceDescription {
+        guard let ip = SonosAddress.privateIPv4(ip) else {
+            throw SonosError(message: "Sonos address must be a private IPv4 address")
+        }
         let url = URL(string: "http://\(ip):1400/xml/device_description.xml")!
         var request = URLRequest(url: url)
         request.timeoutInterval = 5
