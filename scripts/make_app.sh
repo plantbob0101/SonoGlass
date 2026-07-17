@@ -38,9 +38,11 @@ else
 fi
 
 echo "Built $APP"
-if [[ "$CONFIG" == "release" ]] &&
-   ! codesign -dv --verbose=4 "$APP" 2>&1 | grep -q 'flags=.*runtime'; then
-  echo "ERROR: release artifact is missing hardened runtime"
-  exit 1
+if [[ "$CONFIG" == "release" ]]; then
+  SIGNATURE_DETAILS=$(codesign -dv --verbose=4 "$APP" 2>&1)
+  if [[ "$SIGNATURE_DETAILS" != *"runtime"* ]]; then
+    echo "ERROR: release artifact is missing hardened runtime"
+    exit 1
+  fi
 fi
 codesign -d --entitlements - "$APP" 2>/dev/null | tail -5 || true
