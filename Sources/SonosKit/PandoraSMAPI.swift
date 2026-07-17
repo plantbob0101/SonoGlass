@@ -85,6 +85,7 @@ public actor PandoraSMAPI {
 
     /// Full SMAPI household id (the dotted form) from any player.
     public static func householdId(ip: String) async -> String? {
+        guard let ip = SonosAddress.privateIPv4(ip) else { return nil }
         guard let url = URL(string: "http://\(ip):1400/status/zp") else { return nil }
         var request = URLRequest(url: url)
         request.timeoutInterval = 5
