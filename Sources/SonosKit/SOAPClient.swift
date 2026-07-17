@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-public enum SonosUPnPService: Sendable {
+public enum SonosUPnPService: Sendable, Equatable {
     case avTransport
     case renderingControl
     case groupRenderingControl
