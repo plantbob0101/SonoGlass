@@ -24,15 +24,30 @@ public actor MuseClient {
     }
 
     private final class TrustLocalPlayer: NSObject, URLSessionDelegate {
-        // Sonos players use self-signed certificates on 1443; accept them for
-        // this session (which only ever talks to LAN speakers).
+        // Sonos players use self-signed certificates on 1443. We accept those
+        // ONLY for private/link-local addresses (real speakers on the LAN);
+        // any public host falls through to standard validation so this can't
+        // be coaxed into trusting a self-signed cert from the internet.
         func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
                         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-            if let trust = challenge.protectionSpace.serverTrust {
-                completionHandler(.useCredential, URLCredential(trust: trust))
-            } else {
+            guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+                  let trust = challenge.protectionSpace.serverTrust,
+                  Self.isPrivateAddress(challenge.protectionSpace.host) else {
                 completionHandler(.performDefaultHandling, nil)
+                return
             }
+            completionHandler(.useCredential, URLCredential(trust: trust))
+        }
+
+        static func isPrivateAddress(_ host: String) -> Bool {
+            var addr = in_addr()
+            guard inet_pton(AF_INET, host, &addr) == 1 else { return false }
+            let ip = UInt32(bigEndian: addr.s_addr)
+            // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16
+            return (ip & 0xFF00_0000) == 0x0A00_0000
+                || (ip & 0xFFF0_0000) == 0xAC10_0000
+                || (ip & 0xFFFF_0000) == 0xC0A8_0000
+                || (ip & 0xFFFF_0000) == 0xA9FE_0000
         }
     }
 
