@@ -42,7 +42,7 @@ Favorites live on the speakers; Pandora stations use your Pandora credentials
 
 ## Status
 
-Personal project, built and used daily against a real 8-speaker household.
+Personal project, built and used daily against a multi-speaker household.
 Not affiliated with Sonos, Pandora, or Apple. Uses documented-but-unofficial
 local protocols; a firmware or API change could break pieces of it (the
 `pandora-probe` / `sonoglass-diag` CLIs exist to diagnose exactly that).
