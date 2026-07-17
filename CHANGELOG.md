@@ -1,8 +1,9 @@
 # SonoGlass — Engineering Log
 
 What was built, in order, and **why** — including the dead ends, because the
-dead ends are where the knowledge is. Newest last. (Commit hashes refer to
-this repo's history.)
+***REMOVED BY PRIVACY REWRITE***
+***REMOVED BY PRIVACY REWRITE***
+***REMOVED BY PRIVACY REWRITE***
 
 ***REMOVED BY PRIVACY REWRITE***
 
