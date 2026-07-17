@@ -11,6 +11,9 @@ public final class EventHTTPServer: @unchecked Sendable {
     private let handler: Handler
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "com.sonoglass.events")
+    private var activeConnections = 0
+    private static let maxConnections = 32
+    private static let requestTimeout: TimeInterval = 10
 
     public init(handler: @escaping Handler) {
         self.handler = handler
@@ -36,8 +39,8 @@ public final class EventHTTPServer: @unchecked Sendable {
                     break
                 }
             }
-            listener.newConnectionHandler = { [weak self] conn in
-                self?.handle(connection: conn)
+            listener.newConnectionHandler = { [weak self] connection in
+                self?.accept(connection: connection)
             }
             listener.start(queue: queue)
         }
@@ -48,8 +51,30 @@ public final class EventHTTPServer: @unchecked Sendable {
         listener = nil
     }
 
-    private func handle(connection: NWConnection) {
+    private func accept(connection: NWConnection) {
+        guard activeConnections < Self.maxConnections else {
+            connection.cancel()
+            return
+        }
+        activeConnections += 1
+        let slot = ConnectionSlot { [weak self] in
+            self?.queue.async { [weak self] in
+                guard let self else { return }
+                self.activeConnections = max(0, self.activeConnections - 1)
+            }
+        }
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .cancelled, .failed:
+                slot.release()
+            default:
+                break
+            }
+        }
         connection.start(queue: queue)
+        queue.asyncAfter(deadline: .now() + Self.requestTimeout) {
+            connection.cancel()
+        }
         receive(connection: connection, accumulated: Data())
     }
 
@@ -57,47 +82,35 @@ public final class EventHTTPServer: @unchecked Sendable {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
             guard let self else { connection.cancel(); return }
             var buf = accumulated
-            if let data { buf.append(data) }
+            if let data {
+                guard buf.count <= EventHTTPRequestParser.maxRequestBytes - data.count else {
+                    self.respond(connection: connection, status: "413 Payload Too Large")
+                    return
+                }
+                buf.append(data)
+            }
 
-            if let request = Self.completeRequest(from: buf) {
+            switch EventHTTPRequestParser.parse(buf) {
+            case .complete(let request):
                 self.respond(connection: connection)
                 self.handler(request.sid, request.body)
-                return
+            case .invalid:
+                self.respond(connection: connection, status: "400 Bad Request")
+            case .incomplete:
+                if isComplete || error != nil {
+                    connection.cancel()
+                } else {
+                    self.receive(connection: connection, accumulated: buf)
+                }
             }
-            if isComplete || error != nil {
-                connection.cancel()
-                return
-            }
-            self.receive(connection: connection, accumulated: buf)
         }
     }
 
-    private func respond(connection: NWConnection) {
-        let response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    private func respond(connection: NWConnection, status: String = "200 OK") {
+        let response = "HTTP/1.1 \(status)\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
             connection.cancel()
         })
-    }
-
-    private static func completeRequest(from data: Data) -> (sid: String, body: String)? {
-        guard let headerEnd = data.range(of: Data("\r\n\r\n".utf8)) else { return nil }
-        let headerData = data[..<headerEnd.lowerBound]
-        guard let headerText = String(data: headerData, encoding: .utf8) else { return nil }
-
-        var sid = ""
-        var contentLength = 0
-        for line in headerText.split(separator: "\r\n").dropFirst() {
-            guard let colon = line.firstIndex(of: ":") else { continue }
-            let name = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
-            let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
-            if name == "sid" { sid = value }
-            if name == "content-length" { contentLength = Int(value) ?? 0 }
-        }
-        let bodyStart = headerEnd.upperBound
-        let available = data.count - (bodyStart - data.startIndex)
-        guard available >= contentLength else { return nil }
-        let bodyData = data[bodyStart..<data.index(bodyStart, offsetBy: contentLength)]
-        return (sid, String(data: bodyData, encoding: .utf8) ?? "")
     }
 
     private final class ResumeGuard: @unchecked Sendable {
@@ -109,6 +122,90 @@ public final class EventHTTPServer: @unchecked Sendable {
             done = true
             return true
         }
+    }
+
+    private final class ConnectionSlot: @unchecked Sendable {
+        private let lock = NSLock()
+        private var released = false
+        private let onRelease: @Sendable () -> Void
+
+        init(onRelease: @escaping @Sendable () -> Void) {
+            self.onRelease = onRelease
+        }
+
+        func release() {
+            lock.lock()
+            guard !released else { lock.unlock(); return }
+            released = true
+            lock.unlock()
+            onRelease()
+        }
+    }
+}
+
+struct EventHTTPRequest: Equatable {
+    let sid: String
+    let body: String
+}
+
+enum EventHTTPRequestParseResult: Equatable {
+    case incomplete
+    case invalid
+    case complete(EventHTTPRequest)
+}
+
+enum EventHTTPRequestParser {
+    static let maxHeaderBytes = 16 * 1024
+    static let maxBodyBytes = 1024 * 1024
+    static let maxRequestBytes = maxHeaderBytes + 4 + maxBodyBytes
+
+    static func parse(_ data: Data) -> EventHTTPRequestParseResult {
+        guard data.count <= maxRequestBytes else { return .invalid }
+        guard let headerEnd = data.range(of: Data("\r\n\r\n".utf8)) else {
+            return data.count > maxHeaderBytes ? .invalid : .incomplete
+        }
+        let headerLength = headerEnd.lowerBound - data.startIndex
+        guard headerLength <= maxHeaderBytes else { return .invalid }
+        let headerData = data[..<headerEnd.lowerBound]
+        guard let headerText = String(data: headerData, encoding: .utf8) else { return .invalid }
+
+        let lines = headerText.components(separatedBy: "\r\n")
+        guard let requestLine = lines.first else { return .invalid }
+        let requestParts = requestLine.split(separator: " ", omittingEmptySubsequences: true)
+        guard requestParts.count == 3,
+              requestParts[0] == "NOTIFY",
+              requestParts[1] == "/notify",
+              requestParts[2] == "HTTP/1.1" else { return .invalid }
+
+        var sid: String?
+        var contentLength: Int?
+        for line in lines.dropFirst() {
+            guard let colon = line.firstIndex(of: ":") else { return .invalid }
+            let name = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
+            let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            switch name {
+            case "sid":
+                guard sid == nil, !value.isEmpty else { return .invalid }
+                sid = value
+            case "content-length":
+                guard contentLength == nil,
+                      let parsed = Int(value),
+                      parsed >= 0,
+                      parsed <= maxBodyBytes else { return .invalid }
+                contentLength = parsed
+            default:
+                break
+            }
+        }
+        guard let sid, let contentLength else { return .invalid }
+
+        let bodyStart = headerEnd.upperBound
+        let available = data.count - (bodyStart - data.startIndex)
+        guard available >= contentLength else { return .incomplete }
+        let bodyEnd = data.index(bodyStart, offsetBy: contentLength)
+        let bodyData = data[bodyStart..<bodyEnd]
+        guard let body = String(data: bodyData, encoding: .utf8) else { return .invalid }
+        return .complete(EventHTTPRequest(sid: sid, body: body))
     }
 }
 
