@@ -270,6 +270,31 @@ import Foundation
     }
 }
 
+@Suite struct EventNotificationRouterTests {
+    private let routes: [String: SonosUPnPService] = [
+        "uuid:transport": .avTransport,
+        "uuid:rendering": .renderingControl,
+        "uuid:group": .groupRenderingControl,
+        "uuid:topology": .zoneGroupTopology,
+    ]
+
+    @Test func rejectsUnknownSubscription() {
+        #expect(EventNotificationRouter.service(for: "uuid:attacker", in: routes) == nil)
+    }
+
+    @Test func routesKnownSubscription() {
+        #expect(EventNotificationRouter.service(for: "uuid:transport", in: routes) == .avTransport)
+        #expect(EventNotificationRouter.service(for: "uuid:topology", in: routes) == .zoneGroupTopology)
+    }
+
+    @Test func scopesLastChangeToItsServices() {
+        #expect(EventNotificationRouter.acceptsLastChange(.avTransport))
+        #expect(EventNotificationRouter.acceptsLastChange(.renderingControl))
+        #expect(!EventNotificationRouter.acceptsLastChange(.groupRenderingControl))
+        #expect(!EventNotificationRouter.acceptsLastChange(.zoneGroupTopology))
+    }
+}
+
 // MARK: - SMAPI (Pandora thumbs)
 
 @Suite struct SMAPITests {

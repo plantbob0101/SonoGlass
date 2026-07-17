@@ -597,10 +597,14 @@ public actor SonosSystem {
     }
 
     private func handleNotify(sid: String, body: String) async {
+        guard let kind = EventNotificationRouter.service(for: sid, in: sidKinds) else {
+            systemLog.debug("Ignored GENA notification with an unknown subscription")
+            return
+        }
         let props = FlatXMLParser.parse(body)
-        let kind = sidKinds[sid]
 
-        if let lastChange = props["LastChange"], !lastChange.isEmpty {
+        if EventNotificationRouter.acceptsLastChange(kind),
+           let lastChange = props["LastChange"], !lastChange.isEmpty {
             let changes = LastChangeParser.parse(lastChange)
             var np = nowPlaying
             var dirty = false
@@ -627,11 +631,12 @@ public actor SonosSystem {
             }
         }
 
-        if let gv = props["GroupVolume"], let newVolume = Int(gv), newVolume != volume {
+        if kind == .groupRenderingControl,
+           let gv = props["GroupVolume"], let newVolume = Int(gv), newVolume != volume {
             volume = newVolume
             emit(.volume(volume, muted: muted))
         }
-        if let gm = props["GroupMute"] {
+        if kind == .groupRenderingControl, let gm = props["GroupMute"] {
             let newMuted = gm == "1"
             if newMuted != muted { muted = newMuted; emit(.volume(volume, muted: muted)) }
         }
@@ -746,5 +751,16 @@ public actor SonosSystem {
         subscriptions = []
         eventServer?.stop()
         eventServer = nil
+    }
+}
+
+enum EventNotificationRouter {
+    static func service(for sid: String,
+                        in routes: [String: SonosUPnPService]) -> SonosUPnPService? {
+        routes[sid]
+    }
+
+    static func acceptsLastChange(_ service: SonosUPnPService) -> Bool {
+        service == .avTransport || service == .renderingControl
     }
 }

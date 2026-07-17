@@ -237,7 +237,7 @@ public enum GENA {
             throw SonosError(message: "SUBSCRIBE failed for \(path) on \(ip)")
         }
         let granted = parseTimeout(http.value(forHTTPHeaderField: "TIMEOUT")) ?? timeout
-        eventLog.info("Subscribed \(path, privacy: .public) on \(ip, privacy: .public) sid=\(sid, privacy: .public) timeout=\(granted)")
+        eventLog.info("Subscribed \(path, privacy: .public) on \(ip, privacy: .public) sid=\(sid, privacy: .private(mask: .hash)) timeout=\(granted)")
         return Subscription(sid: sid, timeoutSeconds: granted, ip: ip, path: path)
     }
 
