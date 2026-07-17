@@ -235,6 +235,41 @@ import Foundation
     }
 }
 
+@Suite struct EventHTTPRequestParserTests {
+    private func request(contentLength: String, body: String = "<e/>",
+                         method: String = "NOTIFY", path: String = "/notify") -> Data {
+        Data("\(method) \(path) HTTP/1.1\r\nSID: uuid:test\r\nContent-Length: \(contentLength)\r\n\r\n\(body)".utf8)
+    }
+
+    @Test func acceptsCompleteNotify() {
+        #expect(EventHTTPRequestParser.parse(request(contentLength: "4"))
+                == .complete(EventHTTPRequest(sid: "uuid:test", body: "<e/>")))
+    }
+
+    @Test func waitsForIncompleteBody() {
+        #expect(EventHTTPRequestParser.parse(request(contentLength: "8")) == .incomplete)
+    }
+
+    @Test func rejectsNegativeAndOversizedLengths() {
+        #expect(EventHTTPRequestParser.parse(request(contentLength: "-1")) == .invalid)
+        #expect(EventHTTPRequestParser.parse(
+            request(contentLength: String(EventHTTPRequestParser.maxBodyBytes + 1))) == .invalid)
+    }
+
+    @Test func rejectsWrongMethodAndPath() {
+        #expect(EventHTTPRequestParser.parse(
+            request(contentLength: "4", method: "POST")) == .invalid)
+        #expect(EventHTTPRequestParser.parse(
+            request(contentLength: "4", path: "/elsewhere")) == .invalid)
+    }
+
+    @Test func rejectsOversizedHeaders() {
+        let data = Data(("NOTIFY /notify HTTP/1.1\r\nX-Fill: "
+            + String(repeating: "a", count: EventHTTPRequestParser.maxHeaderBytes)).utf8)
+        #expect(EventHTTPRequestParser.parse(data) == .invalid)
+    }
+}
+
 // MARK: - SMAPI (Pandora thumbs)
 
 @Suite struct SMAPITests {
