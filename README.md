@@ -173,6 +173,12 @@ Resources/          Info.plist, entitlements
 scripts/            make_app.sh, run_tests.sh
 ```
 
+## Contributors
+
+- [`plantbob0101`](https://github.com/plantbob0101) — creator and maintainer
+- Claude Fable 5 — AI development collaborator
+- OpenAI Codex — AI security and development collaborator
+
 ## Apple Music Favorites
 
 When an Apple Music track plays (`x-sonos-http:song%3a{id}.mp4?sid=204`), a ☆ star
