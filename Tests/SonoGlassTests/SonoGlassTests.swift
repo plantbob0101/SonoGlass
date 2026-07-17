@@ -3,6 +3,23 @@ import Foundation
 @testable import SonosKit
 @testable import PandoraKit
 
+@Suite struct SonosAddressTests {
+    @Test func acceptsPrivateAndLinkLocalIPv4() {
+        #expect(SonosAddress.privateIPv4("10.0.0.42") == "10.0.0.42")
+        #expect(SonosAddress.privateIPv4("172.31.255.4") == "172.31.255.4")
+        #expect(SonosAddress.privateIPv4(" 192.168.1.20 ") == "192.168.1.20")
+        #expect(SonosAddress.privateIPv4("169.254.4.2") == "169.254.4.2")
+    }
+
+    @Test func rejectsPublicNamesAndURLInjection() {
+        #expect(SonosAddress.privateIPv4("8.8.8.8") == nil)
+        #expect(SonosAddress.privateIPv4("speaker.example.com") == nil)
+        #expect(SonosAddress.privateIPv4("192.168.1.2@evil.example") == nil)
+        #expect(SonosAddress.privateIPv4("127.0.0.1") == nil)
+        #expect(SonosAddress.privateIPv4("::1") == nil)
+    }
+}
+
 // MARK: - Pandora URI token extraction
 
 @Suite struct PandoraTokenTests {

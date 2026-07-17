@@ -60,6 +60,9 @@ public struct SOAPClient: Sendable {
     /// Args are ordered (Name, value) pairs; values are XML-escaped here.
     public func call(ip: String, service: SonosUPnPService, action: String,
                      args: [(String, String)] = []) async throws -> [String: String] {
+        guard let ip = SonosAddress.privateIPv4(ip) else {
+            throw SonosError(message: "Sonos address must be a private IPv4 address")
+        }
         let argXML = args.map { "<\($0.0)>\(XMLText.escape($0.1))</\($0.0)>" }.joined()
         let body = """
         <?xml version="1.0" encoding="utf-8"?>

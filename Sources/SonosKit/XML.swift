@@ -154,7 +154,8 @@ public final class ZoneGroupParser: NSObject, XMLParserDelegate {
             guard elementName == "ZoneGroupMember" else { return } // skip bonded satellites
             if a["Invisible"] == "1" { return }
             guard let udn = a["UUID"], let location = a["Location"],
-                  let ip = URL(string: location)?.host else { return }
+                  let host = URL(string: location)?.host,
+                  let ip = SonosAddress.privateIPv4(host) else { return }
             let name = a["ZoneName"] ?? ip
             currentMembers.append(SonosDevice(udn: udn, ip: ip, roomName: name))
         default:
