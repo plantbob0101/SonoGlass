@@ -25,8 +25,23 @@ grep -E "Signing Identity|BUILD" "$LOG" | head -3
 
 APP=".build/xcode/Build/Products/Release/SonoGlass.app"
 [[ -d "$APP" ]] || { echo "build failed"; exit 1; }
+
+if ! codesign -dv --verbose=4 "$APP" 2>&1 | grep -q 'flags=.*runtime'; then
+  echo "ERROR: refusing to publish an app without hardened runtime"
+  exit 1
+fi
+
+ENTITLEMENTS=$(mktemp)
+trap 'rm -f "$ENTITLEMENTS" "$LOG"' EXIT
+codesign -d --entitlements :- "$APP" > "$ENTITLEMENTS" 2>/dev/null
+if /usr/libexec/PlistBuddy -c 'Print :com.apple.security.get-task-allow' \
+     "$ENTITLEMENTS" 2>/dev/null | grep -q true; then
+  echo "ERROR: refusing to publish a development-debuggable app (get-task-allow=true)"
+  exit 1
+fi
+
 rm -rf dist/SonoGlass.app
 mkdir -p dist
 ditto "$APP" dist/SonoGlass.app
-echo "Built dist/SonoGlass.app (team-signed)"
+echo "Built dist/SonoGlass.app (team-signed, hardened runtime)"
 codesign -dv dist/SonoGlass.app 2>&1 | grep -E "Authority|TeamIdentifier" | head -3 || true
