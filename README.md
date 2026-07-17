@@ -1,12 +1,44 @@
 # SonoGlass
 
-A native macOS menu bar app that controls Sonos speakers over the **local network only**
-(UPnP/SOAP — no Sonos account, no Sonos cloud API), with first-class **Pandora thumbs
-up / thumbs down**, a floating always-on-top **mini player**, and browsing/playback of
-**Sonos Favorites, Sonos Playlists, and your Pandora station list**.
+**A native macOS + visionOS controller for Sonos — the one with Pandora thumbs.**
 
-Favorites live on the speakers; Pandora stations and thumbs use your Pandora
-credentials (Keychain). No Sonos login exists anywhere in this app.
+![platform](https://img.shields.io/badge/platform-macOS%2026%20%7C%20visionOS%2026-blue)
+![swift](https://img.shields.io/badge/Swift-6.0-orange)
+![license](https://img.shields.io/badge/license-MIT-green)
+
+Controls Sonos speakers over the **local network only** (UPnP/SOAP — no Sonos
+account, no Sonos cloud API), with the feature no shipping third-party Mac
+controller has: **working Pandora thumbs up / down**. Plus a floating glass
+mini player, whole-house grouping with per-room volume, Sonos
+Favorites/Playlists/Stations browsing, one-tap **Apple Music Favorites**, and a
+**Vision Pro** app.
+
+Favorites live on the speakers; Pandora stations use your Pandora credentials
+(stored only in the Keychain). No Sonos login exists anywhere in this app.
+
+> **Why it exists:** the official Sonos desktop app was abandoned, and no Mac
+> controller relays Pandora thumbs to your account. This one does — by asking
+> the *player* to rate through its own service session (see
+> [`CHANGELOG.md`](CHANGELOG.md) for the full protocol reverse-engineering
+> story, dead ends included).
+
+## Features
+
+- 🎛 **Full transport & control** — play/pause/skip, volume, mute, from the menu bar
+- 👍 **Pandora thumbs** — up/down land in your real Pandora account (down auto-skips)
+- ⭐️ **Apple Music Favorites** — one tap, straight to your library (MusicKit)
+- 🔎 **Find-in-Apple-Music** — the Shazam step, minus the microphone
+- 🔊 **Whole-house grouping** — join/split rooms, independent per-room volume
+- 📻 **Browse & play** — Sonos Favorites, Playlists, and your Pandora stations
+- 🪟 **Floating glass mini player** — always-on-top, over full-screen apps
+- 🥽 **Vision Pro** — the same app as a spatial glass window
+
+## Status
+
+Personal project, built and used daily against a real 8-speaker household.
+Not affiliated with Sonos, Pandora, or Apple. Uses documented-but-unofficial
+local protocols; a firmware or API change could break pieces of it (the
+`pandora-probe` / `sonoglass-diag` CLIs exist to diagnose exactly that).
 
 ## Building
 
@@ -22,7 +54,7 @@ Variants:
 ```sh
 SANDBOX=0 scripts/make_app.sh  # build without App Sandbox (try this if discovery fails)
 CONFIG=debug scripts/make_app.sh
-scripts/run_tests.sh           # unit tests (16 tests)
+scripts/run_tests.sh           # unit tests (22 tests)
 swift run sonoglass-diag [ip]  # CLI protocol smoke test against your real speakers
 ```
 
