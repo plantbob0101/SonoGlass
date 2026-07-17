@@ -54,3 +54,40 @@ swift run pandora-probe <speaker-ip> <subcommand>
 
 See `CHANGELOG.md` for the full map of which API does what and why the working
 paths were chosen.
+
+## Running on Vision Pro
+
+There's no App Store listing — you build and sideload with your own Apple ID
+(free or paid), which is the standard path for open-source visionOS apps:
+
+1. **Enable Developer Mode** on the Vision Pro: Settings → Privacy & Security
+   → Developer Mode (it reboots the device).
+2. **Pair it with your Mac**: open Xcode → Window → Devices and Simulators;
+   put the headset on and accept the pairing prompt.
+3. **Make the app yours**: in `project.yml`, change
+   `PRODUCT_BUNDLE_IDENTIFIER` (both targets) from `com.sonoglass.app` to your
+   own reverse-DNS id, then run `xcodegen`.
+4. **Build & install**:
+   ```sh
+   xcodegen
+   xcodebuild -project SonoGlass.xcodeproj -scheme SonoGlassVision \
+     -destination 'generic/platform=visionOS' \
+     -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
+     DEVELOPMENT_TEAM=<your-team-id> build
+   xcrun devicectl list devices        # find your headset's identifier
+   xcrun devicectl device install app --device <identifier> \
+     <path-to>/SonoGlassVision.app
+   ```
+   (Or just open the project in Xcode, select the SonoGlassVision scheme and
+   your headset, and press Run.)
+
+**Free vs. paid Apple ID:** with a free account the install expires after
+7 days (rebuild/reinstall to renew) and Apple Music Favorites won't authorize
+(MusicKit requires a paid membership + the MusicKit App Service enabled on
+your App ID). Everything else — Sonos control, Pandora thumbs, grouping,
+per-room volume, the in-app Pandora browser — needs no accounts at all.
+
+**Gotcha:** after reinstalling over a running app, visionOS may keep the old
+process alive behind the open window. Close the window, wait a few seconds,
+and reopen. The build number in ⚙️ → Diagnostics tells you what's actually
+running.
