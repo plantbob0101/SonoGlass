@@ -1,6 +1,7 @@
 .build/
 .swiftpm/
 dist/
+.claude/
 *.xcodeproj
 .DS_Store
 SonoGlass.xcodeproj/
