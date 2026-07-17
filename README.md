@@ -22,6 +22,13 @@ Favorites live on the speakers; Pandora stations use your Pandora credentials
 > [`CHANGELOG.md`](CHANGELOG.md) for the full protocol reverse-engineering
 > story, dead ends included).
 
+<p align="center">
+  <img src="docs/images/popover.png" width="420" alt="SonoGlass menu bar popover: now playing with Pandora thumbs, Apple Music funnel buttons, group volume with per-room trims">
+</p>
+<p align="center">
+  <img src="docs/images/mini-player.png" width="560" alt="SonoGlass floating glass mini player">
+</p>
+
 ## Features
 
 - 🎛 **Full transport & control** — play/pause/skip, volume, mute, from the menu bar
