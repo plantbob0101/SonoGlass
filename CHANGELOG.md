@@ -83,7 +83,7 @@ corners.
   (`x-sonos-http:song%3a{id}.mp4?sid=204`).
 - **Why a second build path:** MusicKit refuses ad-hoc-signed apps. Added
   XcodeGen `project.yml` + `scripts/make_app_signed.sh` (automatic signing,
-  `TEAM=72QQAQQKR6`). Two tricks were required: app-identifier entitlements to
+  `TEAM=<your-team-id>`). Two tricks were required: app-identifier entitlements to
   force an embedded provisioning profile, and
   `-allowProvisioningDeviceRegistration` so xcodebuild could register the Mac.
   Stale dev certificates (keys lost with previous machines) had to be revoked
