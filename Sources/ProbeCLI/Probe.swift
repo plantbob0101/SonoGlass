@@ -8,9 +8,6 @@ import PandoraKit
 ///   pandora-probe whoami <coordinator-ip>           — print household/device/track id
 @main
 struct Probe {
-    static let tokenPath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("sonoglass-smapi.json")
-
     static func main() async {
         setbuf(stdout, nil)
         let args = CommandLine.arguments
@@ -54,10 +51,8 @@ struct Probe {
                     try? await Task.sleep(nanoseconds: 5_000_000_000)
                     do {
                         let creds = try await smapi.getDeviceAuthToken(link: link)
-                        let data = try JSONEncoder().encode(creds)
-                        try data.write(to: tokenPath)
-                        print("✅ LINKED. token saved to \(tokenPath.path)")
-                        print("authToken=\(creds.authToken.prefix(16))… key=\(creds.privateKey.prefix(8))…")
+                        try saveCredentials(creds)
+                        print("✅ LINKED. credentials saved to Keychain")
                         return
                     } catch SMAPIError.notLinkedRetry {
                         print("  [\(attempt)] not yet authorized…")
@@ -123,8 +118,7 @@ struct Probe {
         case "soap":
             // pandora-probe soap <ip> <action> <innerXML> — raw authenticated SMAPI call.
             guard args.count > 4,
-                  let data = try? Data(contentsOf: tokenPath),
-                  let creds = try? JSONDecoder().decode(SMAPICredentials.self, from: data) else {
+                  let creds = loadCredentials() else {
                 print("usage: soap <ip> <action> <innerXML> (and run 'link' first)")
                 return
             }
@@ -184,19 +178,6 @@ struct Probe {
                 print("❌ \(error)")
             }
 
-        case "import":
-            // Copies the token captured by 'link' into the app's Keychain item.
-            guard let data = try? Data(contentsOf: tokenPath) else {
-                print("FAIL: no saved token at \(tokenPath.path)")
-                return
-            }
-            do {
-                try PandoraSMAPIKeychain.save(data)
-                print("✅ token imported into Keychain (SonoGlass.PandoraSMAPI)")
-            } catch {
-                print("❌ keychain save failed: \(error)")
-            }
-
         case "redeem":
             // pandora-probe redeem <ip> <linkCode> <linkDeviceId> — collect the
             // token for an already-authorized link code.
@@ -206,19 +187,15 @@ struct Probe {
                                        linkDeviceId: args[4])
             do {
                 let creds = try await smapi.getDeviceAuthToken(link: link)
-                let data = try JSONEncoder().encode(creds)
-                try data.write(to: tokenPath)
-                try? PandoraSMAPIKeychain.save(data)
-                print("✅ LINKED. token saved to \(tokenPath.path) and Keychain")
-                print("authToken=\(creds.authToken.prefix(16))… key=\(creds.privateKey.prefix(8))…")
+                try saveCredentials(creds)
+                print("✅ LINKED. credentials saved to Keychain")
             } catch {
                 print("❌ redeem failed: \(error)")
             }
 
         case "rate":
             let positive = args.count > 3 ? args[3] != "down" : true
-            guard let data = try? Data(contentsOf: tokenPath),
-                  let creds = try? JSONDecoder().decode(SMAPICredentials.self, from: data) else {
+            guard let creds = loadCredentials() else {
                 print("FAIL: no saved token — run 'link' first")
                 return
             }
@@ -240,6 +217,15 @@ struct Probe {
         default:
             print("unknown command \(cmd)")
         }
+    }
+
+    static func saveCredentials(_ credentials: SMAPICredentials) throws {
+        try PandoraSMAPIKeychain.save(JSONEncoder().encode(credentials))
+    }
+
+    static func loadCredentials() -> SMAPICredentials? {
+        guard let data = PandoraSMAPIKeychain.load() else { return nil }
+        return try? JSONDecoder().decode(SMAPICredentials.self, from: data)
     }
 
     static func currentTrackURI(ip: String) async -> String? {
