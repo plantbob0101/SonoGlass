@@ -30,10 +30,10 @@ import Foundation
     }
 
     @Test func parsesModernCloudQueueShape() {
-***REMOVED BY PRIVACY REWRITE***
-***REMOVED BY PRIVACY REWRITE***
+        // Fixture modeled on the cloud-queue shape observed on 2026-07 firmware.
+        let uri = "x-sonos-http:VC1%3a%3aST%3a%3aST%3a12345678900000000%3a%3aTR%3a424242%3a%3a7%3a%3aRINCON_00112233445501400%3a100000001.mp3?sid=236&flags=32768&sn=2"
         let ref = PandoraTrackRef.parse(trackURI: uri)
-***REMOVED BY PRIVACY REWRITE***
+        #expect(ref == .modern(trackId: "TR:424242", stationId: "12345678900000000"))
     }
 
     @Test func legacyShapeStillParsesAsLegacy() {
@@ -239,9 +239,9 @@ import Foundation
 
 @Suite struct SMAPITests {
     @Test func extractsItemIDFromCloudQueueURI() {
-***REMOVED BY PRIVACY REWRITE***
+        let uri = "x-sonos-http:VC1%3a%3aST%3a%3aST%3a12345678900000000%3a%3aTR%3a424242%3a%3a7%3a%3aRINCON_00112233445501400%3a100000001.mp3?sid=236&flags=32768&sn=2"
         #expect(PandoraSMAPI.itemID(fromTrackURI: uri)
-***REMOVED BY PRIVACY REWRITE***
+                == "VC1::ST::ST:12345678900000000::TR:424242::7::RINCON_00112233445501400:100000001")
     }
 
     @Test func extractsItemIDFromMp4AndProgVariant() {
@@ -251,7 +251,7 @@ import Foundation
     }
 
     @Test func derivesSonosDeviceIDFromUDN() {
-***REMOVED BY PRIVACY REWRITE***
+        #expect(PandoraSMAPI.deviceId(fromUDN: "RINCON_00112233445501400") == "00-11-22-33-44-55:0")
     }
 
     @Test func ratingValuesMatchPresentationMap() {

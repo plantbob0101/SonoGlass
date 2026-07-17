@@ -94,7 +94,7 @@ public actor PandoraSMAPI {
     }
 
     /// A stable Sonos-style deviceId (MAC:0) derived from a coordinator UDN
-***REMOVED BY PRIVACY REWRITE***
+    /// like RINCON_00112233445501400.
     public static func deviceId(fromUDN udn: String) -> String {
         var hex = udn
         if let r = hex.range(of: "RINCON_") { hex = String(hex[r.upperBound...]) }

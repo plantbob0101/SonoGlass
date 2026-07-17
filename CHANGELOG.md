@@ -1,11 +1,9 @@
 # SonoGlass — Engineering Log
 
 What was built, in order, and **why** — including the dead ends, because the
-***REMOVED BY PRIVACY REWRITE***
-***REMOVED BY PRIVACY REWRITE***
-***REMOVED BY PRIVACY REWRITE***
+dead ends are where the knowledge is. Newest last.
 
-***REMOVED BY PRIVACY REWRITE***
+## 2026-07-11 — Day one: the whole app
 
 **Goal:** replace the abandoned official Sonos desktop app with a native macOS
 menu bar controller whose killer feature is Pandora thumbs — which no shipping
@@ -24,10 +22,10 @@ third-party Mac controller has.
   macro-izes SwiftUI property wrappers with plugins that only ship inside full
   Xcode → pinned the macOS 26.5 SDK. CLT hides `Testing.framework` →
   `run_tests.sh` passes explicit framework/plugin/rpath flags.
-***REMOVED BY PRIVACY REWRITE***
+- Verified live against a multi-room household: discovery, topology,
   transport, volume, favorites/playlists/stations playback, events.
 
-***REMOVED BY PRIVACY REWRITE***
+## 2026-07-11/12 — The Pandora thumbs saga
 
 The spec assumed track URIs carried Pandora v5 `trackToken`s. Modern firmware
 doesn't: cloud-queue URIs (`VC1::ST::ST:{station}::TR:{track}::…`) carry only
@@ -40,13 +38,13 @@ catalog ids. Four approaches were tested live, in order:
    ("Current index or trackToken must be provided"). The one early "success"
    was an update to a track thumbed years ago — a misleading false positive.
    *Dead end (kept for diagnostics).*
-***REMOVED BY PRIVACY REWRITE***
+3. **SMAPI `rateItem` + AppLink device link** — the
    full device-link flow was built and works (gotcha: `getDeviceAuthToken`
    must echo the service-generated `linkDeviceId` from `getAppLink`, or it
    returns NOT_LINKED_RETRY forever). But Pandora's `rateItem` endpoint is a
    **stub**: it answers success and persists nothing (`getExtendedMetadata`
    rating stays 0). *Dead end (code kept — powers the `pandora-probe` CLI).*
-***REMOVED BY PRIVACY REWRITE***
+4. **The player's local control websocket** — per Sonos's
    programmed-radio spec, ratings are POSTed *by the player* to the service.
    `wss://{ip}:1443/websocket/api` (public sample API key) exposes
    `playbackMetadata:1 → rate` with the current queue `itemId`; the player
@@ -60,13 +58,13 @@ the iPhone app shows the full feedback store, the v5 per-station lists are
 capped, and the pandora.com profile "Thumbs Up" page misses even thumbs made
 on pandora.com itself.
 
-***REMOVED BY PRIVACY REWRITE***
+## 2026-07-12 — Polish & the menu bar icon
 
 - Icon briefly pinned to the two-speaker glyph by request, then restored:
   it's a group-size indicator (one speaker = single room, two = multi-room
   group; fills while playing).
 
-***REMOVED BY PRIVACY REWRITE***
+## 2026-07-12 — Mini player: real glass
 
 The first version read as a flat die-cut sticker. Fixes: kill the window's
 hard shadow and float the glass card in a transparent margin with layered
@@ -76,7 +74,7 @@ top-left refraction → faint dark bottom edge = perceived thickness); soft top
 sheen; Apple's `clear` glass variant instead of frosted; 30 pt continuous
 corners.
 
-***REMOVED BY PRIVACY REWRITE***
+## 2026-07-12 — Apple Music Favorites
 
 - ☆ button (popover + mini player) toggles the song's Favorite via MusicKit
   (`PUT/DELETE /v1/me/ratings/songs/{id}`), prefilled from the current rating.
@@ -91,7 +89,7 @@ corners.
   once so Xcode could mint a fresh one.
 - User-confirmed working on multiple songs.
 
-***REMOVED BY PRIVACY REWRITE***
+## 2026-07-12 — The Shazam-killer funnel
 
 **Why:** the user's discovery loop was Pandora-on-Sonos → Shazam the speaker →
 find the song in Apple Music → favorite/add. SonoGlass already *knows* the
@@ -109,7 +107,7 @@ Apple Music library, one enriches Pandora.
   *not* `shareableUrlPath`); falls back to a pandora.com search page.
   Website chosen over the Pandora Mac app deliberately: the app is an Electron
   shell with no deep links; the site has the session and full backstage.
-***REMOVED BY PRIVACY REWRITE***
+- Marquee scrolling for overflowing title/artist in the mini
   player and popover: pause → glide to reveal the end → pause → glide back.
 
 ## Diagnostic tooling (grew throughout; keep these)
@@ -121,7 +119,7 @@ Apple Music library, one enriches Pandora.
 - `wsprobe` pattern (scratch): raw player-websocket experiments — this is how
   the `rate` command was discovered.
 
-***REMOVED BY PRIVACY REWRITE***
+## 2026-07-12 — Grouping & per-room volume
 
 - **Group editor** (⧉ next to the room picker): check a room to pull it into
   the current group (`SetAVTransportURI x-rincon:{coordinatorUDN}` on the
