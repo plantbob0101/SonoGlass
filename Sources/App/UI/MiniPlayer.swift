@@ -2,16 +2,61 @@ import SwiftUI
 import AppKit
 import SonosKit
 
-/// Borderless, non-activating, always-on-top panel. Clicking its controls
-/// must never steal focus from the frontmost app.
+/// Borderless, always-on-top panel with explicit drag handling outside its
+/// controls.
 final class FloatingPanel: NSPanel {
     var onScroll: ((CGFloat) -> Void)?
+    private var dragEventMonitor: Any?
+    private var dragStartMouseLocation: NSPoint?
+    private var dragStartWindowOrigin: NSPoint?
 
-    override var canBecomeKey: Bool { false }
+    override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
     override func scrollWheel(with event: NSEvent) {
         onScroll?(event.scrollingDeltaY)
+    }
+
+    func installDragHandling() {
+        guard dragEventMonitor == nil else { return }
+        dragEventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+        ) { [weak self] event in
+            guard let self, event.window === self else { return event }
+            switch event.type {
+            case .leftMouseDown:
+                let location = event.locationInWindow
+                let topHandle = NSRect(x: 0, y: self.frame.height - 26,
+                                       width: self.frame.width, height: 26)
+                let titleHandle = NSRect(x: 105, y: 32, width: 145, height: 78)
+                guard topHandle.contains(location) || titleHandle.contains(location) else {
+                    return event
+                }
+                self.dragStartMouseLocation = NSEvent.mouseLocation
+                self.dragStartWindowOrigin = self.frame.origin
+                return nil
+            case .leftMouseDragged:
+                guard let startMouse = self.dragStartMouseLocation,
+                      let startOrigin = self.dragStartWindowOrigin else { return event }
+                let currentMouse = NSEvent.mouseLocation
+                self.setFrameOrigin(NSPoint(
+                    x: startOrigin.x + currentMouse.x - startMouse.x,
+                    y: startOrigin.y + currentMouse.y - startMouse.y
+                ))
+                return nil
+            case .leftMouseUp:
+                guard self.dragStartMouseLocation != nil else { return event }
+                self.dragStartMouseLocation = nil
+                self.dragStartWindowOrigin = nil
+                UserDefaults.standard.set(
+                    NSStringFromRect(self.frame),
+                    forKey: "MiniPlayerFrame"
+                )
+                return nil
+            default:
+                return event
+            }
+        }
     }
 }
 
@@ -33,7 +78,7 @@ final class MiniPlayerController {
     private func makePanel(appState: AppState) -> FloatingPanel {
         let panel = FloatingPanel(
             contentRect: NSRect(origin: .zero, size: Self.panelSize),
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
@@ -51,22 +96,53 @@ final class MiniPlayerController {
         panel.onScroll = { [weak appState] delta in
             appState?.adjustVolume(by: delta > 0 ? 2 : -2)
         }
+        panel.installDragHandling()
 
         let host = NSHostingView(rootView: MiniPlayerView().environment(appState))
         host.frame = panel.contentRect(forFrameRect: panel.frame)
         panel.contentView = host
 
-        panel.setFrameAutosaveName("MiniPlayer")
-        if !panel.setFrameUsingName("MiniPlayer"), let screen = NSScreen.main {
-            let visible = screen.visibleFrame
+        let restoredSavedFrame = restoreSavedFrame(panel)
+        // The autosaved frame may carry an older size.
+        panel.setContentSize(Self.panelSize)
+        keepPanelOnScreen(panel, restoredSavedFrame: restoredSavedFrame)
+        return panel
+    }
+
+    private func restoreSavedFrame(_ panel: NSPanel) -> Bool {
+        guard let value = UserDefaults.standard.string(forKey: "MiniPlayerFrame") else {
+            return false
+        }
+        let frame = NSRectFromString(value)
+        guard frame.width > 0, frame.height > 0 else { return false }
+        panel.setFrame(frame, display: false)
+        return true
+    }
+
+    /// Saved coordinates can point outside the active desktop after changing
+    /// monitors or display modes. Keep the complete player reachable.
+    private func keepPanelOnScreen(_ panel: NSPanel, restoredSavedFrame: Bool) {
+        guard let fallbackScreen = NSScreen.main ?? NSScreen.screens.first else { return }
+
+        let matchingScreen = NSScreen.screens.first {
+            $0.visibleFrame.intersects(panel.frame)
+        }
+        guard restoredSavedFrame, let screen = matchingScreen else {
+            let visible = fallbackScreen.visibleFrame
             panel.setFrameOrigin(NSPoint(
                 x: visible.maxX - Self.panelSize.width - 20,
                 y: visible.maxY - Self.panelSize.height - 20
             ))
+            return
         }
-        // The autosaved frame may carry an older size.
-        panel.setContentSize(Self.panelSize)
-        return panel
+
+        let visible = screen.visibleFrame
+        let maxX = max(visible.minX, visible.maxX - panel.frame.width)
+        let maxY = max(visible.minY, visible.maxY - panel.frame.height)
+        panel.setFrameOrigin(NSPoint(
+            x: min(max(panel.frame.minX, visible.minX), maxX),
+            y: min(max(panel.frame.minY, visible.minY), maxY)
+        ))
     }
 }
 

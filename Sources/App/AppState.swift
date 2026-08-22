@@ -250,14 +250,11 @@ final class AppState {
         let defaultRoom = defaults.string(forKey: "defaultRoom")
         Task { await system.start(manualIP: manualIP, preferredRoom: defaultRoom) }
         #if os(macOS)
-        if defaults.bool(forKey: "showMiniAtLaunch") {
-            miniPlayerVisible = true
-            // Defer panel creation until the app has finished launching.
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                self.updateMiniPlayer()
-            }
-        }
+        // SonoGlass is a menu-bar utility whose floating player is its primary
+        // Mac interface. Always present it on launch; it can still be hidden
+        // from the pin control for the current session.
+        miniPlayerVisible = true
+        updateMiniPlayer()
         #endif
     }
 

@@ -24,6 +24,9 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/SonoGlass"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+if [[ -f Resources/SonoGlass.icns ]]; then
+  cp Resources/SonoGlass.icns "$APP/Contents/Resources/SonoGlass.icns"
+fi
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 SIGN_ARGS=(--force --sign -)
