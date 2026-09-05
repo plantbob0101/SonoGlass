@@ -26,10 +26,19 @@ public actor SonosSystem {
     public nonisolated let updates: AsyncStream<SonosUpdate>
     private let continuation: AsyncStream<SonosUpdate>.Continuation
 
-    private let soap = SOAPClient()
+    private let soap: SOAPClient
 
-    private var groups: [ZoneGroup] = []
-    private var selectedGroupID: String?
+    // Actor methods can interleave at every network await. Revisions prevent an
+    // old room's response from overwriting a newer selection (including A → B → A).
+    private var playbackRevision = UUID()
+    private var discoveryRevision = UUID()
+    private var subscriptionRevision = UUID()
+    private var groups: [ZoneGroup] = [] {
+        didSet { if groups != oldValue { playbackRevision = UUID() } }
+    }
+    private var selectedGroupID: String? {
+        didSet { if selectedGroupID != oldValue { playbackRevision = UUID() } }
+    }
     private var nowPlaying = NowPlayingState()
     private var volume = 0
     private var muted = false
@@ -54,6 +63,15 @@ public actor SonosSystem {
     private let muse = MuseClient()
 
     public init() {
+        soap = SOAPClient()
+        (updates, continuation) = AsyncStream.makeStream(of: SonosUpdate.self, bufferingPolicy: .unbounded)
+    }
+
+    /// Supplies an isolated transport and initial topology for deterministic tests.
+    init(soap: SOAPClient, groups: [ZoneGroup], selectedGroupID: String?) {
+        self.soap = soap
+        self.groups = groups
+        self.selectedGroupID = selectedGroupID
         (updates, continuation) = AsyncStream.makeStream(of: SonosUpdate.self, bufferingPolicy: .unbounded)
     }
 
@@ -87,9 +105,12 @@ public actor SonosSystem {
     }
 
     private func discover(manualIP: String?, preferredRoom: String?) async {
+        let revision = UUID()
+        discoveryRevision = revision
         async let ssdp = SSDPDiscovery.search(duration: 3.0)
         async let bonjour = BonjourDiscovery.search(duration: 3.0)
         var ips = await ssdp.union(await bonjour)
+        guard discoveryRevision == revision, !Task.isCancelled else { return }
         if let manualIP, !manualIP.isEmpty {
             if let validated = SonosAddress.privateIPv4(manualIP) {
                 ips.insert(validated)
@@ -111,11 +132,12 @@ public actor SonosSystem {
         // One reachable player bootstraps everything: topology comes from the player.
         var bootstrapped = false
         for ip in ips {
-            if await refreshTopology(via: ip) {
+            if await refreshTopology(via: ip, discovery: revision) {
                 bootstrapped = true
                 break
             }
         }
+        guard discoveryRevision == revision, !Task.isCancelled else { return }
         guard bootstrapped else {
             emit(.discovery(.none))
             return
@@ -125,23 +147,27 @@ public actor SonosSystem {
 
         if selectedGroupID == nil || !groups.contains(where: { $0.id == selectedGroupID }) {
             let preferred = preferredRoom.flatMap { room in
-                groups.first { $0.coordinator?.roomName == room }
+                groups.first { group in group.members.contains { $0.roomName == room } }
             }
             selectedGroupID = (preferred ?? groups.first)?.id
         }
         emit(.groups(groups, selectedID: selectedGroupID))
 
         await loadServices()
+        guard discoveryRevision == revision, !Task.isCancelled else { return }
         await startEventServerIfNeeded()
+        guard discoveryRevision == revision, !Task.isCancelled else { return }
         await resubscribe()
+        guard discoveryRevision == revision, !Task.isCancelled else { return }
         startPolling()
         await pollOnce()
     }
 
     @discardableResult
-    private func refreshTopology(via ip: String) async -> Bool {
+    private func refreshTopology(via ip: String, discovery: UUID? = nil) async -> Bool {
         do {
             let result = try await soap.call(ip: ip, service: .zoneGroupTopology, action: "GetZoneGroupState")
+            guard !Task.isCancelled, discovery == nil || discovery == discoveryRevision else { return false }
             guard let stateXML = result["ZoneGroupState"], !stateXML.isEmpty else { return false }
             let parsed = ZoneGroupParser.parse(stateXML)
             guard !parsed.isEmpty else { return false }
@@ -175,9 +201,14 @@ public actor SonosSystem {
     // MARK: - Group selection
 
     public func selectGroup(id: String) async {
-        guard selectedGroupID != id else { return }
+        guard groups.contains(where: { $0.id == id }), selectedGroupID != id else { return }
         selectedGroupID = id
         nowPlaying = NowPlayingState()
+        memberVols = [:]
+        pollFailures = 0
+        lastGroupVolumeSetAt = .distantPast
+        emit(.nowPlaying(nowPlaying))
+        emit(.memberVolumes([:]))
         emit(.groups(groups, selectedID: selectedGroupID))
         await resubscribe()
         await pollOnce()
@@ -187,6 +218,11 @@ public actor SonosSystem {
 
     public func play() async throws {
         let c = try requireCoordinator()
+        try await play(coordinator: c, revision: playbackRevision)
+    }
+
+    private func play(coordinator c: SonosDevice, revision: UUID) async throws {
+        guard revision == playbackRevision, !Task.isCancelled else { throw CancellationError() }
         _ = try await soap.call(ip: c.ip, service: .avTransport, action: "Play",
                                 args: [("InstanceID", "0"), ("Speed", "1")])
         await pollOnce()
@@ -206,6 +242,23 @@ public actor SonosSystem {
         await pollOnce()
     }
 
+    /// Rechecks the player after a service's automatic skip window. Never skips
+    /// a different room or a different track when a delayed fallback resumes.
+    @discardableResult
+    public func nextIfCurrentTrackMatches(trackURI: String, groupID: String) async throws -> Bool {
+        guard !trackURI.isEmpty, let group = selectedGroup, group.id == groupID,
+              let c = group.coordinator else { return false }
+        let revision = playbackRevision
+        let position = try await soap.call(ip: c.ip, service: .avTransport, action: "GetPositionInfo",
+                                           args: [("InstanceID", "0")])
+        guard revision == playbackRevision, !Task.isCancelled,
+              position["TrackURI"] == trackURI else { return false }
+        _ = try await soap.call(ip: c.ip, service: .avTransport, action: "Next",
+                                args: [("InstanceID", "0")])
+        await pollOnce()
+        return true
+    }
+
     public func previous() async throws {
         let c = try requireCoordinator()
         _ = try await soap.call(ip: c.ip, service: .avTransport, action: "Previous",
@@ -215,9 +268,12 @@ public actor SonosSystem {
 
     // MARK: - Volume
 
-    public func setVolume(_ value: Int) async throws {
+    public func setVolume(_ value: Int, groupID: String? = nil) async throws {
         let group = selectedGroup
+        if let groupID, group?.id != groupID { throw CancellationError() }
         let c = try requireCoordinator()
+        let revision = playbackRevision
+        let value = min(100, max(0, value))
         volume = value
         if let group, group.members.count > 1 {
             // Sonos scales members against a snapshot of the per-room mix.
@@ -228,6 +284,7 @@ public actor SonosSystem {
                                          action: "SnapshotGroupVolume",
                                          args: [("InstanceID", "0")])
             }
+            guard revision == playbackRevision, !Task.isCancelled else { throw CancellationError() }
             lastGroupVolumeSetAt = Date()
             _ = try await soap.call(ip: c.ip, service: .groupRenderingControl, action: "SetGroupVolume",
                                     args: [("InstanceID", "0"), ("DesiredVolume", String(value))])
@@ -239,6 +296,7 @@ public actor SonosSystem {
 
     /// Sets one member's own volume (trim within a group).
     public func setMemberVolume(_ value: Int, device: SonosDevice) async throws {
+        let value = min(100, max(0, value))
         memberVols[device.udn] = value
         _ = try await soap.call(ip: device.ip, service: .renderingControl, action: "SetVolume",
                                 args: [("InstanceID", "0"), ("Channel", "Master"),
@@ -248,6 +306,7 @@ public actor SonosSystem {
     public func setMute(_ mute: Bool) async throws {
         let group = selectedGroup
         let c = try requireCoordinator()
+        let revision = playbackRevision
         muted = mute
         if let group, group.members.count > 1 {
             _ = try await soap.call(ip: c.ip, service: .groupRenderingControl, action: "SetGroupMute",
@@ -256,6 +315,7 @@ public actor SonosSystem {
             _ = try await soap.call(ip: c.ip, service: .renderingControl, action: "SetMute",
                                     args: [("InstanceID", "0"), ("Channel", "Master"), ("DesiredMute", mute ? "1" : "0")])
         }
+        guard revision == playbackRevision, !Task.isCancelled else { throw CancellationError() }
         emit(.volume(volume, muted: muted))
     }
 
@@ -299,6 +359,7 @@ public actor SonosSystem {
     // MARK: - Playback of saved content
 
     public func playFavorite(_ item: DIDLItem) async throws {
+        let revision = playbackRevision
         switch FavoriteClassifier.classify(res: item.res) {
         case .stream:
             try await playStream(item)
@@ -308,25 +369,29 @@ public actor SonosSystem {
             do {
                 try await playStream(item)
             } catch {
+                guard revision == playbackRevision, !Task.isCancelled else { throw CancellationError() }
                 try await playContainer(item)
             }
         }
+        guard revision == playbackRevision, !Task.isCancelled else { throw CancellationError() }
         captureSN(from: item.res)
         await pollOnce()
     }
 
     private func playStream(_ item: DIDLItem) async throws {
         let c = try requireCoordinator()
+        let revision = playbackRevision
         _ = try await soap.call(ip: c.ip, service: .avTransport, action: "SetAVTransportURI", args: [
             ("InstanceID", "0"),
             ("CurrentURI", item.res),
             ("CurrentURIMetaData", item.resMD),
         ])
-        try await play()
+        try await play(coordinator: c, revision: revision)
     }
 
     private func playContainer(_ item: DIDLItem) async throws {
         let c = try requireCoordinator()
+        let revision = playbackRevision
         // Favorites carry authoritative resMD; SQ: playlists don't — use the
         // standard saved-queue metadata convention for those.
         var metadata = item.resMD
@@ -343,6 +408,7 @@ public actor SonosSystem {
         }
         _ = try await soap.call(ip: c.ip, service: .avTransport, action: "RemoveAllTracksFromQueue",
                                 args: [("InstanceID", "0")])
+        guard revision == playbackRevision, !Task.isCancelled else { throw CancellationError() }
         let added = try await soap.call(ip: c.ip, service: .avTransport, action: "AddURIToQueue", args: [
             ("InstanceID", "0"),
             ("EnqueuedURI", item.res),
@@ -350,26 +416,30 @@ public actor SonosSystem {
             ("DesiredFirstTrackNumberEnqueued", "0"),
             ("EnqueueAsNext", "0"),
         ])
+        guard revision == playbackRevision, !Task.isCancelled else { throw CancellationError() }
         let firstTrack = added["FirstTrackNumberEnqueued"] ?? "1"
         _ = try await soap.call(ip: c.ip, service: .avTransport, action: "SetAVTransportURI", args: [
             ("InstanceID", "0"),
             ("CurrentURI", "x-rincon-queue:\(c.udn)#0"),
             ("CurrentURIMetaData", ""),
         ])
+        guard revision == playbackRevision, !Task.isCancelled else { throw CancellationError() }
         _ = try? await soap.call(ip: c.ip, service: .avTransport, action: "Seek", args: [
             ("InstanceID", "0"),
             ("Unit", "TRACK_NR"),
             ("Target", firstTrack),
         ])
-        try await play()
+        try await play(coordinator: c, revision: revision)
     }
 
     /// Plays a Pandora station by id. Prefers a matching Sonos Favorite's stored
     /// res + resMD; otherwise constructs the URI + DIDL per the Sonos convention.
     public func playPandoraStation(stationID: String, name: String) async throws {
+        let revision = playbackRevision
         if cachedFavorites.isEmpty {
             cachedFavorites = (try? await browse(objectID: "FV:2")) ?? []
         }
+        guard revision == playbackRevision, !Task.isCancelled else { throw CancellationError() }
         let needle = "st%3a\(stationID.lowercased())"
         if let fav = cachedFavorites.first(where: { $0.res.lowercased().contains(needle) }) {
             try await playFavorite(fav)
@@ -395,7 +465,7 @@ public actor SonosSystem {
             ("CurrentURI", uri),
             ("CurrentURIMetaData", metadata),
         ])
-        try await play()
+        try await play(coordinator: c, revision: revision)
     }
 
     private func captureSN(from uri: String) {
@@ -418,27 +488,31 @@ public actor SonosSystem {
     }
 
     public func pollOnce() async {
-        guard let c = coordinator else { return }
+        guard let group = selectedGroup, let c = group.coordinator, !Task.isCancelled else { return }
+        let revision = playbackRevision
         do {
             var np = nowPlaying
 
             let transport = try await soap.call(ip: c.ip, service: .avTransport, action: "GetTransportInfo",
                                                 args: [("InstanceID", "0")])
+            guard revision == playbackRevision, !Task.isCancelled else { return }
             np.transport = TransportState(rawValue: transport["CurrentTransportState"] ?? "") ?? .stopped
 
             let position = try await soap.call(ip: c.ip, service: .avTransport, action: "GetPositionInfo",
                                                args: [("InstanceID", "0")])
+            guard revision == playbackRevision, !Task.isCancelled else { return }
             np.trackURI = position["TrackURI"] ?? ""
             np.relTime = position["RelTime"] ?? ""
             np.duration = position["TrackDuration"] ?? ""
             if let metadata = position["TrackMetaData"], metadata.hasPrefix("<") {
                 applyTrackDIDL(metadata, to: &np, coordinatorIP: c.ip)
             } else if position["TrackMetaData"] == "NOT_IMPLEMENTED" || np.trackURI.isEmpty {
-                np.title = ""; np.artist = ""; np.album = ""; np.artURL = nil
+                np.title = ""; np.artist = ""; np.album = ""; np.artURL = nil; np.rating = nil
             }
 
             let media = try await soap.call(ip: c.ip, service: .avTransport, action: "GetMediaInfo",
                                             args: [("InstanceID", "0")])
+            guard revision == playbackRevision, !Task.isCancelled else { return }
             np.stationURI = media["CurrentURI"] ?? ""
             captureSN(from: np.stationURI)
             if let mediaMD = media["CurrentURIMetaData"], mediaMD.hasPrefix("<"),
@@ -453,7 +527,8 @@ public actor SonosSystem {
                 emit(.nowPlaying(np))
             }
 
-            try await pollVolume(coordinator: c)
+            try await pollVolume(group: group, coordinator: c, revision: revision)
+            guard revision == playbackRevision, !Task.isCancelled else { return }
 
             pollFailures = 0
             if !reachable {
@@ -461,6 +536,7 @@ public actor SonosSystem {
                 emit(.reachable(true))
             }
         } catch {
+            guard revision == playbackRevision, !Task.isCancelled else { return }
             pollFailures += 1
             if pollFailures >= 2, reachable {
                 reachable = false
@@ -469,8 +545,8 @@ public actor SonosSystem {
         }
     }
 
-    private func pollVolume(coordinator c: SonosDevice) async throws {
-        let multi = (selectedGroup?.members.count ?? 1) > 1
+    private func pollVolume(group: ZoneGroup, coordinator c: SonosDevice, revision: UUID) async throws {
+        let multi = group.members.count > 1
         let vol: [String: String]
         let mute: [String: String]
         if multi {
@@ -484,6 +560,7 @@ public actor SonosSystem {
             mute = try await soap.call(ip: c.ip, service: .renderingControl, action: "GetMute",
                                        args: [("InstanceID", "0"), ("Channel", "Master")])
         }
+        guard revision == playbackRevision, !Task.isCancelled else { return }
         let newVolume = Int(vol["CurrentVolume"] ?? "") ?? volume
         let newMuted = (mute["CurrentMute"] ?? "0") == "1"
         if newVolume != volume || newMuted != muted {
@@ -493,7 +570,8 @@ public actor SonosSystem {
         }
 
         // Per-member trim volumes for grouped rooms.
-        if multi, let members = selectedGroup?.members {
+        if multi {
+            let members = group.members
             var vols: [String: Int] = [:]
             for member in members {
                 if let result = try? await soap.call(ip: member.ip, service: .renderingControl,
@@ -503,6 +581,7 @@ public actor SonosSystem {
                     vols[member.udn] = v
                 }
             }
+            guard revision == playbackRevision, !Task.isCancelled else { return }
             if !vols.isEmpty, vols != memberVols {
                 memberVols = vols
                 emit(.memberVolumes(vols))
@@ -527,17 +606,34 @@ public actor SonosSystem {
             guard let self else { return }
             Task { await self.handleNotify(sid: sid, body: body) }
         }
+        // Publish ownership before suspending so shutdown and another discovery
+        // can see/cancel this exact startup rather than creating a second listener.
+        eventServer = server
         do {
-            eventPort = try await server.start()
-            eventServer = server
+            let port = try await server.start()
+            guard eventServer === server else { server.stop(); return }
+            guard !Task.isCancelled else {
+                server.stop()
+                eventServer = nil
+                eventPort = 0
+                return
+            }
+            eventPort = port
             systemLog.info("Event server listening on port \(self.eventPort)")
         } catch {
+            server.stop()
+            guard eventServer === server else { return }
+            eventServer = nil
+            eventPort = 0
             systemLog.error("Event server failed to start: \(String(describing: error))")
             setEventsHealthy(false)
         }
     }
 
     private func resubscribe() async {
+        let revision = UUID()
+        subscriptionRevision = revision
+        setEventsHealthy(false)
         for task in renewTasks { task.cancel() }
         renewTasks = []
         let old = subscriptions
@@ -547,6 +643,7 @@ public actor SonosSystem {
             await GENA.unsubscribe(sub)
         }
 
+        guard subscriptionRevision == revision, !Task.isCancelled else { return }
         guard let c = coordinator, eventServer != nil, eventPort > 0,
               let macIP = LocalIP.matching(peer: c.ip) else {
             setEventsHealthy(false)
@@ -561,10 +658,15 @@ public actor SonosSystem {
         for service in [SonosUPnPService.avTransport, renderingService, .zoneGroupTopology] {
             do {
                 let sub = try await GENA.subscribe(ip: c.ip, path: service.eventPath, callbackURL: callback)
+                guard subscriptionRevision == revision, !Task.isCancelled else {
+                    await GENA.unsubscribe(sub)
+                    return
+                }
                 subscriptions.append(sub)
                 sidKinds[sub.sid] = service
                 startRenewal(for: sub)
             } catch {
+                guard subscriptionRevision == revision, !Task.isCancelled else { return }
                 systemLog.error("Subscription failed for \(service.eventPath): \(String(describing: error))")
                 healthy = false
             }
@@ -576,12 +678,13 @@ public actor SonosSystem {
         let task = Task { [weak self] in
             var current = sub
             while !Task.isCancelled {
-                let wait = max(30, current.timeoutSeconds / 2)
-                try? await Task.sleep(nanoseconds: UInt64(wait) * 1_000_000_000)
+                let wait = GENA.renewalDelay(timeoutSeconds: current.timeoutSeconds)
+                try? await Task.sleep(for: .seconds(wait))
                 if Task.isCancelled { return }
                 do {
                     current = try await GENA.renew(current)
                 } catch {
+                    guard !Task.isCancelled else { return }
                     await self?.renewalFailed(sid: current.sid)
                     return
                 }
@@ -650,11 +753,12 @@ public actor SonosSystem {
         if kind == .zoneGroupTopology, let stateXML = props["ZoneGroupState"], !stateXML.isEmpty {
             let parsed = ZoneGroupParser.parse(stateXML)
             if !parsed.isEmpty {
+                let previousGroup = selectedGroup
                 groups = parsed.sorted { $0.displayName < $1.displayName }
                 if !groups.contains(where: { $0.id == selectedGroupID }) {
                     selectedGroupID = groups.first?.id
-                    await resubscribe()
                 }
+                if previousGroup != selectedGroup { await resubscribe() }
                 emit(.groups(groups, selectedID: selectedGroupID))
             }
         }
@@ -751,12 +855,21 @@ public actor SonosSystem {
     }
 
     public func shutdown() async {
+        discoveryRevision = UUID()
+        playbackRevision = UUID()
+        subscriptionRevision = UUID()
         pollTask?.cancel()
+        pollTask = nil
         for task in renewTasks { task.cancel() }
-        for sub in subscriptions { await GENA.unsubscribe(sub) }
+        renewTasks = []
+        let old = subscriptions
         subscriptions = []
+        sidKinds = [:]
         eventServer?.stop()
         eventServer = nil
+        eventPort = 0
+        setEventsHealthy(false)
+        for sub in old { await GENA.unsubscribe(sub) }
     }
 }
 

@@ -6,8 +6,8 @@ private let amLog = Logger(subsystem: "com.sonoglass", category: "applemusic")
 
 /// Sets/reads the "Favorite" (love) state of Apple Music catalog songs via
 /// MusicKit's ratings API. Requires the app to be signed with a provisioning
-/// profile whose App ID has the MusicKit service enabled; on unsigned builds
-/// authorization fails gracefully and the star button stays hidden/disabled.
+/// profile whose App ID has the MusicKit service enabled. Unsupported builds
+/// report authorization failure when a user requests an Apple Music action.
 actor AppleMusicRatings {
 
     enum RatingError: Error, CustomStringConvertible {
@@ -24,17 +24,13 @@ actor AppleMusicRatings {
         }
     }
 
-    private var authorized = false
-
-    private func ensureAuthorization() async throws {
-        if authorized { return }
+    private func ensureAuthorization(requestIfNeeded: Bool = true) async throws {
         switch MusicAuthorization.currentStatus {
         case .authorized:
-            authorized = true
-        case .notDetermined:
+            return
+        case .notDetermined where requestIfNeeded:
             let status = await MusicAuthorization.request()
             guard status == .authorized else { throw RatingError.notAuthorized }
-            authorized = true
         default:
             throw RatingError.notAuthorized
         }
@@ -56,7 +52,9 @@ actor AppleMusicRatings {
 
     /// Current favorite state; nil when the song has no rating.
     func isFavorite(songID: String) async throws -> Bool? {
-        try await ensureAuthorization()
+        // Background playback refreshes must not trigger a permission prompt.
+        // Favorite/search actions request access when the user chooses them.
+        try await ensureAuthorization(requestIfNeeded: false)
         let url = URL(string: "https://api.music.apple.com/v1/me/ratings/songs/\(songID)")!
         let request = MusicDataRequest(urlRequest: URLRequest(url: url))
         do {

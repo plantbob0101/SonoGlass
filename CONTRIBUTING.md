@@ -5,9 +5,9 @@ useful — issues and PRs are welcome, but responses may be sporadic.
 
 ## Ground rules
 
-- **No secrets in commits.** Never commit Pandora/Apple credentials, your
-  developer Team ID, household IDs, or auth tokens. All of those live in the
-  macOS/visionOS Keychain at runtime, never in source.
+- **No secrets in commits.** Never commit Pandora/Apple credentials, private
+  signing material, household IDs, or auth tokens. Account credentials and
+  service sessions belong in Keychain, never in source or logs.
 - **Local protocols only.** SonoGlass deliberately uses no Sonos cloud account.
   Keep new features on the local-network / documented-API path.
 - **Test against real hardware when you can.** Much of this talks to live
@@ -15,11 +15,12 @@ useful — issues and PRs are welcome, but responses may be sporadic.
 
 ## Building
 
-macOS app (no Xcode needed):
+macOS app (macOS 26+, Xcode 26+ or Command Line Tools 26+):
 
 ```sh
-scripts/make_app.sh          # ad-hoc signed → dist/SonoGlass.app
-scripts/run_tests.sh         # unit tests
+scripts/run_tests.sh         # offline regression suite
+scripts/make_app.sh          # hardened, ad-hoc signed → dist/SonoGlass.app
+scripts/install_app.sh       # quit the app first; preserves a backup
 ```
 
 macOS with Apple Music Favorites, or the visionOS app (needs Xcode + an Apple
@@ -29,6 +30,10 @@ Developer account with MusicKit enabled on your App ID):
 TEAM=<your-team-id> scripts/make_app_signed.sh          # signed Mac app
 # visionOS: xcodegen && xcodebuild -scheme SonoGlassVision ... (see CHANGELOG)
 ```
+
+The default local build is not sandboxed; use `SANDBOX=1` to test the sandbox
+variant. Scripts discover the selected SDK instead of assuming a local patch
+version or tool installation path. See README for fresh-Mac setup.
 
 The signed script only publishes a hardened Release bundle and fails closed if
 Xcode injects the development-only `get-task-allow` entitlement. Do not weaken
@@ -41,7 +46,7 @@ before signing — Apple App IDs are unique per developer account.
 ## Where things live
 
 - `Sources/SonosKit` — discovery, SOAP/UPnP, topology, eventing, `SonosSystem`
-- `Sources/PandoraKit` — Pandora v5 + listener GraphQL + SMAPI clients, crypto
+- `Sources/PandoraKit` — Pandora v5 + listener GraphQL clients, crypto, Keychain
 - `Sources/App` — shared SwiftUI + macOS app shell
 - `Sources/VisionApp` — the visionOS spatial UI
 - `Sources/DiagCLI`, `Sources/ProbeCLI` — diagnostic tools; start here when a
@@ -54,7 +59,7 @@ isolation:
 
 ```sh
 swift run sonoglass-diag <speaker-ip>
-swift run pandora-probe <speaker-ip> <subcommand>
+swift run pandora-probe <subcommand> <speaker-ip>
 ```
 
 See `CHANGELOG.md` for the full map of which API does what and why the working

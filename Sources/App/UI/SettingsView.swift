@@ -52,10 +52,12 @@ struct GeneralSettings: View {
 
             Picker("Default room", selection: $defaultRoom) {
                 Text("Last used").tag("")
-                ForEach(appState.groups) { group in
-                    if let room = group.coordinator?.roomName {
-                        Text(room).tag(room)
-                    }
+                ForEach(appState.allRooms) { room in
+                    Text(room.roomName).tag(room.roomName)
+                }
+                if !defaultRoom.isEmpty,
+                   !appState.allRooms.contains(where: { $0.roomName == defaultRoom }) {
+                    Text("\(defaultRoom) (unavailable)").tag(defaultRoom)
                 }
             }
         }
@@ -66,7 +68,8 @@ struct GeneralSettings: View {
 
 struct PandoraSettings: View {
     @Environment(AppState.self) private var appState
-    @State private var email = PandoraKeychainMirror.username
+    @State private var email = ""
+    @State private var emailEdited = false
     @State private var password = ""
     @State private var status = ""
     @State private var busy = false
@@ -74,7 +77,10 @@ struct PandoraSettings: View {
     var body: some View {
         Form {
             Section {
-                TextField("Email", text: $email)
+                TextField("Email", text: Binding(
+                    get: { email },
+                    set: { email = $0; emailEdited = true }
+                ))
                     .textContentType(.username)
                 SecureField("Password", text: $password)
 
@@ -96,6 +102,7 @@ struct PandoraSettings: View {
                         Button("Remove account", role: .destructive) {
                             appState.removePandoraAccount()
                             email = ""
+                            emailEdited = false
                             password = ""
                             status = "Account removed"
                         }
@@ -124,6 +131,12 @@ struct PandoraSettings: View {
         }
         .formStyle(.grouped)
         .padding(.vertical, 8)
+        .onAppear {
+            if !emailEdited { email = appState.pandoraUsername }
+        }
+        .onChange(of: appState.pandoraUsername) { _, username in
+            if !emailEdited { email = username }
+        }
     }
 
     private func verify() {
@@ -135,14 +148,6 @@ struct PandoraSettings: View {
             status = await appState.savePandoraCredentials(username: user, password: pass)
             busy = false
         }
-    }
-}
-
-/// Small shim so the settings pane can prefill the stored e-mail without
-/// keeping the password in memory.
-enum PandoraKeychainMirror {
-    static var username: String {
-        PandoraKit.PandoraKeychain.load()?.username ?? ""
     }
 }
 
@@ -180,16 +185,24 @@ struct AdvancedSettings: View {
 }
 
 struct AboutSettings: View {
+    private var versionLabel: String {
+        guard let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String else {
+            return "Development build"
+        }
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        return build.map { "Version \(version) (\($0))" } ?? "Version \(version)"
+    }
+
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "hifispeaker.2.fill")
                 .font(.system(size: 40))
                 .foregroundStyle(.tint)
             Text("SonoGlass").font(.title2.weight(.semibold))
-            Text("Version 1.0")
+            Text(versionLabel)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("Local control via UPnP; Pandora feedback via Pandora's JSON API.")
+            Text("Local Sonos control; Pandora feedback through your speaker's service session.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

@@ -7,7 +7,15 @@ import PandoraKit
 @main
 struct Diag {
     static func main() async {
+        if CommandLine.arguments.dropFirst().contains("--help") {
+            print("Usage: sonoglass-diag [private-speaker-ip]\nRead-only discovery, topology, transport and saved-content diagnostics.")
+            return
+        }
         let manualIP = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : nil
+        if let manualIP, SonosAddress.privateIPv4(manualIP) == nil {
+            print("Error: use a private IPv4 address for a Sonos speaker.")
+            exit(2)
+        }
 
         print("== Discovery ==")
         async let ssdp = SSDPDiscovery.search(duration: 3.0)
@@ -15,24 +23,43 @@ struct Diag {
         var ips = await ssdp.union(await bonjour)
         if let manualIP { ips.insert(manualIP) }
         print("Candidates: \(ips.sorted())")
-        guard let firstIP = ips.first else {
+        guard !ips.isEmpty else {
             print("No speakers found.")
-            return
+            exit(1)
         }
 
         let soap = SOAPClient()
         do {
+            // Discovery can return unreachable players. Try the explicit IP
+            // first, then all candidates instead of choosing an arbitrary Set entry.
+            let candidates = ([manualIP].compactMap { $0 } + ips.sorted().filter { $0 != manualIP })
+            var topology: (ip: String, groups: [ZoneGroup])?
+            for ip in candidates {
+                do {
+                    let response = try await soap.call(ip: ip, service: .zoneGroupTopology,
+                                                       action: "GetZoneGroupState")
+                    let groups = ZoneGroupParser.parse(response["ZoneGroupState"] ?? "")
+                    if !groups.isEmpty {
+                        topology = (ip, groups)
+                        break
+                    }
+                } catch { print("Candidate \(ip) unavailable: \(error)") }
+            }
+            guard let (firstIP, groups) = topology else {
+                print("Error: no discovered speaker returned a usable topology.")
+                exit(1)
+            }
             print("\n== Topology (via \(firstIP)) ==")
-            let topo = try await soap.call(ip: firstIP, service: .zoneGroupTopology,
-                                           action: "GetZoneGroupState")
-            let groups = ZoneGroupParser.parse(topo["ZoneGroupState"] ?? "")
             for group in groups {
                 print("  \(group.displayName)  coordinator=\(group.coordinatorUDN)")
                 for member in group.members {
                     print("    \(member.roomName)  \(member.ip)  \(member.udn)")
                 }
             }
-            guard let coordinator = groups.first?.coordinator else { return }
+            guard let coordinator = groups.compactMap(\.coordinator).first else {
+                print("Error: topology contains no reachable coordinator.")
+                exit(1)
+            }
 
             print("\n== Now playing (\(coordinator.roomName)) ==")
             let info = try await soap.call(ip: coordinator.ip, service: .avTransport,
@@ -92,6 +119,7 @@ struct Diag {
             print("  \(playlists.count) playlists total")
         } catch {
             print("Error: \(error)")
+            exit(1)
         }
     }
 }

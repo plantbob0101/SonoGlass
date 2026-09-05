@@ -35,6 +35,7 @@ public actor PandoraClient {
     private static let version = "5"
 
     private var credentials: (username: String, password: String)?
+    private var credentialRevision: UInt64 = 0
     private var session: Session?
     private let urlSession: URLSession
 
@@ -42,6 +43,18 @@ public actor PandoraClient {
     private var webCsrfToken = ""
     private var webAuthToken = ""
     private let webSession: URLSession
+    private let webSessionCache: WebSessionCache
+
+    struct WebSessionCache: Sendable {
+        var load: @Sendable () -> Data?
+        var save: @Sendable (Data) throws -> Void
+        var delete: @Sendable () -> Void
+
+        static let keychain = Self(load: { PandoraWebSessionStore.load() },
+                                   save: { try PandoraWebSessionStore.save($0) },
+                                   delete: { PandoraWebSessionStore.delete() })
+        static let disabled = Self(load: { nil }, save: { _ in }, delete: {})
+    }
 
     public init() {
         let config = URLSessionConfiguration.ephemeral
@@ -56,21 +69,38 @@ public actor PandoraClient {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
         ]
         webSession = URLSession(configuration: webConfig)
+        webSessionCache = .keychain
+    }
+
+    // Internal seam for offline regression tests; production uses ephemeral sessions.
+    init(urlSession: URLSession, webSession: URLSession, webSessionCache: WebSessionCache = .disabled) {
+        self.urlSession = urlSession
+        self.webSession = webSession
+        self.webSessionCache = webSessionCache
     }
 
     public func setCredentials(username: String, password: String) {
+        credentialRevision &+= 1
+        if let credentials,
+           credentials.username != username || credentials.password != password {
+            webSessionCache.delete()
+        }
         credentials = (username, password)
         session = nil
         webCsrfToken = ""
         webAuthToken = ""
+        webSession.configuration.httpCookieStorage?.removeCookies(since: .distantPast)
     }
 
-    public func clearCredentials() {
+    /// Invalidate this client's requests. Account owners replacing a client can
+    /// remove shared storage synchronously and leave a new client's cache alone.
+    public func clearCredentials(deleteStoredSession: Bool = true) {
+        credentialRevision &+= 1
         credentials = nil
         session = nil
         webCsrfToken = ""
         webAuthToken = ""
-        PandoraWebSessionStore.delete()
+        if deleteStoredSession { webSessionCache.delete() }
         webSession.configuration.httpCookieStorage?.removeCookies(since: .distantPast)
     }
 
@@ -96,6 +126,7 @@ public actor PandoraClient {
     /// Format-aware feedback: legacy tokens go to the v5 tuner API, cloud-queue
     /// catalog ids go to the listener GraphQL API on pandora.com.
     public func addFeedback(ref: PandoraTrackRef, isPositive: Bool, elapsedSeconds: Int = 0) async throws {
+        let revision = credentialRevision
         switch ref {
         case .legacy(let trackToken, let stationToken):
             try await addFeedback(stationToken: stationToken, trackToken: trackToken,
@@ -104,10 +135,14 @@ public actor PandoraClient {
             do {
                 try await graphQLFeedback(trackId: trackId, stationId: stationId,
                                           isPositive: isPositive, elapsedSeconds: elapsedSeconds)
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
+                try Task.checkCancellation()
+                guard revision == credentialRevision else { throw CancellationError() }
                 // Session likely expired — one re-login and retry.
                 webAuthToken = ""
-                PandoraWebSessionStore.delete()
+                webSessionCache.delete()
                 try await graphQLFeedback(trackId: trackId, stationId: stationId,
                                           isPositive: isPositive, elapsedSeconds: elapsedSeconds)
             }
@@ -117,15 +152,23 @@ public actor PandoraClient {
 
     // MARK: - Listener web API (pandora.com)
 
-    private struct WebSession: Codable {
+    struct WebSession: Codable {
+        let username: String
         let csrf: String
         let auth: String
+
+        static func decode(_ data: Data, for username: String) -> WebSession? {
+            guard let cached = try? JSONDecoder().decode(Self.self, from: data),
+                  cached.username == username else { return nil }
+            return cached
+        }
     }
 
     private func loadCachedWebSession() {
         guard webAuthToken.isEmpty,
-              let data = PandoraWebSessionStore.load(),
-              let cached = try? JSONDecoder().decode(WebSession.self, from: data) else { return }
+              let credentials,
+              let data = webSessionCache.load(),
+              let cached = WebSession.decode(data, for: credentials.username) else { return }
         webCsrfToken = cached.csrf
         webAuthToken = cached.auth
         // Re-plant the csrf cookie so the header check passes in a fresh process.
@@ -137,20 +180,24 @@ public actor PandoraClient {
     }
 
     private func persistWebSession() {
-        let session = WebSession(csrf: webCsrfToken, auth: webAuthToken)
+        guard let credentials else { return }
+        let session = WebSession(username: credentials.username, csrf: webCsrfToken, auth: webAuthToken)
         if let data = try? JSONEncoder().encode(session) {
-            try? PandoraWebSessionStore.save(data)
+            try? webSessionCache.save(data)
         }
     }
 
     private func ensureWebSession() async throws {
+        guard let credentials else { throw PandoraError.notConfigured }
+        let revision = credentialRevision
         if webAuthToken.isEmpty { loadCachedWebSession() }
         guard webAuthToken.isEmpty else { return }
-        guard let credentials else { throw PandoraError.notConfigured }
 
         // Prime cookies so pandora.com hands us a csrftoken.
         let home = URL(string: "https://www.pandora.com/")!
         _ = try? await webSession.data(from: home)
+        try Task.checkCancellation()
+        guard revision == credentialRevision else { throw CancellationError() }
         webCsrfToken = webSession.configuration.httpCookieStorage?
             .cookies(for: home)?.first { $0.name == "csrftoken" }?.value ?? ""
         guard !webCsrfToken.isEmpty else {
@@ -179,15 +226,26 @@ public actor PandoraClient {
     private func graphQLFeedback(trackId: String, stationId: String,
                                  isPositive: Bool, elapsedSeconds: Int) async throws {
         try await ensureWebSession()
-        let mutation = "mutation { feedback { setFeedback(targetId: \"\(trackId)\", "
-            + "sourceContextId: \"ST:0:\(stationId)\", value: \(isPositive ? "UP" : "DOWN"), "
+        let trackLiteral = String(decoding: try JSONEncoder().encode(trackId), as: UTF8.self)
+        let stationLiteral = String(decoding: try JSONEncoder().encode("ST:0:\(stationId)"), as: UTF8.self)
+        let mutation = "mutation { feedback { setFeedback(targetId: \(trackLiteral), "
+            + "sourceContextId: \(stationLiteral), value: \(isPositive ? "UP" : "DOWN"), "
             + "deviceUuid: \"sonoglass\", elapsedTime: \(max(0, elapsedSeconds))) { status } } }"
         let (status, body) = try await webPost(path: "/api/v1/graphql/graphql",
                                                json: ["query": mutation])
-        guard status == 200, body.contains("\"status\":\"OK\""), !body.contains("\"errors\"") else {
-            pandoraLog.error("GraphQL feedback failed: HTTP \(status) body=\(body, privacy: .public) mutation=\(mutation, privacy: .public)")
+        guard status == 200, Self.feedbackSucceeded(body) else {
+            pandoraLog.error("GraphQL feedback failed: HTTP \(status)")
             throw PandoraError.badResponse("feedback rejected: \(Self.graphQLErrorSummary(from: body, status: status))")
         }
+    }
+
+    static func feedbackSucceeded(_ body: String) -> Bool {
+        guard let json = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any],
+              (json["errors"] as? [Any] ?? []).isEmpty,
+              let data = json["data"] as? [String: Any],
+              let feedback = data["feedback"] as? [String: Any],
+              let result = feedback["setFeedback"] as? [String: Any] else { return false }
+        return result["status"] as? String == "OK"
     }
 
     private static func graphQLErrorSummary(from body: String, status: Int) -> String {
@@ -230,7 +288,8 @@ public actor PandoraClient {
         if status != 200 || body.contains("\"errors\"") {
             if body.contains("authTokenExpired") || body.contains("UNAUTHENTICATED") || status == 401 {
                 webAuthToken = ""
-                PandoraWebSessionStore.delete()
+                webSessionCache.delete()
+                try await ensureWebSession()
                 (status, body) = try await webPost(path: "/api/v1/graphql/graphql",
                                                    json: ["query": mutation])
             }
@@ -257,6 +316,7 @@ public actor PandoraClient {
     }
 
     private func webPost(path: String, json: [String: Any]) async throws -> (Int, String) {
+        let revision = credentialRevision
         var request = URLRequest(url: URL(string: "https://www.pandora.com\(path)")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -266,6 +326,8 @@ public actor PandoraClient {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: json)
         let (data, response) = try await webSession.data(for: request)
+        try Task.checkCancellation()
+        guard revision == credentialRevision else { throw CancellationError() }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         return (status, String(decoding: data, as: UTF8.self))
     }
@@ -356,9 +418,12 @@ public actor PandoraClient {
     }
 
     private func authenticatedCall(method: String, params: [String: Any]) async throws -> [String: Any] {
+        let revision = credentialRevision
         do {
             return try await authenticatedCallOnce(method: method, params: params)
         } catch PandoraError.api(let code, _) where code == 1001 {
+            try Task.checkCancellation()
+            guard revision == credentialRevision else { throw CancellationError() }
             // Auth token expired — re-login once and retry.
             pandoraLog.info("Pandora session expired; re-authenticating")
             session = nil
@@ -381,6 +446,7 @@ public actor PandoraClient {
 
     private func rawCall(query: [(String, String)], body: [String: Any],
                          encrypted: Bool) async throws -> [String: Any] {
+        let revision = credentialRevision
         var components = URLComponents(string: Self.base)!
         // Strict percent-encoding: Pandora auth tokens contain '+' and '=' which
         // must not survive unencoded in the query string.
@@ -404,6 +470,8 @@ public actor PandoraClient {
         }
 
         let (data, _) = try await urlSession.data(for: request)
+        try Task.checkCancellation()
+        guard revision == credentialRevision else { throw CancellationError() }
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let stat = json["stat"] as? String else {
             throw PandoraError.badResponse("not JSON")

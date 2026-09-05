@@ -15,14 +15,92 @@ final class FloatingPanel: NSPanel {
     }
 }
 
+/// A small AppKit-backed drag target. SwiftUI's interactive glass surface
+/// consumes mouse events, so `isMovableByWindowBackground` alone is not enough
+/// to make the visible card draggable.
+private struct WindowDragHandle: NSViewRepresentable {
+    let onActivityChanged: (Bool) -> Void
+
+    final class DragView: NSView {
+        var onActivityChanged: ((Bool) -> Void)?
+        private var trackingArea: NSTrackingArea?
+
+        override func updateTrackingAreas() {
+            if let trackingArea { removeTrackingArea(trackingArea) }
+            let trackingArea = NSTrackingArea(
+                rect: bounds,
+                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+            addTrackingArea(trackingArea)
+            self.trackingArea = trackingArea
+            super.updateTrackingAreas()
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            onActivityChanged?(true)
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            onActivityChanged?(false)
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            onActivityChanged?(true)
+            NSCursor.closedHand.push()
+            window?.performDrag(with: event)
+            NSCursor.pop()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.65) { [weak self] in
+                self?.onActivityChanged?(false)
+            }
+        }
+
+        override func resetCursorRects() {
+            addCursorRect(bounds, cursor: .openHand)
+        }
+    }
+
+    func makeNSView(context: Context) -> DragView {
+        let view = DragView()
+        view.onActivityChanged = onActivityChanged
+        return view
+    }
+
+    func updateNSView(_ nsView: DragView, context: Context) {
+        nsView.onActivityChanged = onActivityChanged
+    }
+}
+
 @MainActor
 final class MiniPlayerController {
     private var panel: FloatingPanel?
+    private var screenObserver: NSObjectProtocol?
+
+    init() {
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, let panel = self.panel else { return }
+                self.keepPanelOnScreen(panel)
+            }
+        }
+    }
+
+    isolated deinit {
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+    }
 
     func setVisible(_ visible: Bool, appState: AppState) {
         if visible {
             if panel == nil { panel = makePanel(appState: appState) }
-            panel?.orderFrontRegardless()
+            if let panel {
+                keepPanelOnScreen(panel)
+                panel.orderFrontRegardless()
+            }
         } else {
             panel?.orderOut(nil)
         }
@@ -49,6 +127,7 @@ final class MiniPlayerController {
         panel.isFloatingPanel = true
         panel.becomesKeyOnlyIfNeeded = true
         panel.onScroll = { [weak appState] delta in
+            guard delta != 0 else { return }
             appState?.adjustVolume(by: delta > 0 ? 2 : -2)
         }
 
@@ -57,22 +136,45 @@ final class MiniPlayerController {
         panel.contentView = host
 
         panel.setFrameAutosaveName("MiniPlayer")
-        if !panel.setFrameUsingName("MiniPlayer"), let screen = NSScreen.main {
-            let visible = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(
-                x: visible.maxX - Self.panelSize.width - 20,
-                y: visible.maxY - Self.panelSize.height - 20
-            ))
-        }
+        let restored = panel.setFrameUsingName("MiniPlayer")
         // The autosaved frame may carry an older size.
         panel.setContentSize(Self.panelSize)
+        keepPanelOnScreen(panel, restoredSavedFrame: restored)
         return panel
+    }
+
+    /// A saved position can point at a disconnected display, or leave the drag
+    /// handle out of reach after a display resolution or arrangement change.
+    private func keepPanelOnScreen(_ panel: NSPanel, restoredSavedFrame: Bool = true) {
+        guard let fallback = NSScreen.main ?? NSScreen.screens.first else { return }
+        let matchingScreen = NSScreen.screens.max { lhs, rhs in
+            let left = lhs.visibleFrame.intersection(panel.frame)
+            let right = rhs.visibleFrame.intersection(panel.frame)
+            return max(0, left.width) * max(0, left.height)
+                < max(0, right.width) * max(0, right.height)
+        }
+        let screen = matchingScreen.flatMap {
+            $0.visibleFrame.intersects(panel.frame) ? $0 : nil
+        }
+        let visible = (screen ?? fallback).visibleFrame
+        let origin: NSPoint
+        if !restoredSavedFrame || screen == nil {
+            origin = NSPoint(x: visible.maxX - panel.frame.width - 20,
+                             y: visible.maxY - panel.frame.height - 20)
+        } else {
+            origin = panel.frame.origin
+        }
+        panel.setFrameOrigin(NSPoint(
+            x: min(max(origin.x, visible.minX), max(visible.minX, visible.maxX - panel.frame.width)),
+            y: min(max(origin.y, visible.minY), max(visible.minY, visible.maxY - panel.frame.height))
+        ))
     }
 }
 
 struct MiniPlayerView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.appearsActive) private var appearsActive
+    @State private var dragHandleActive = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -146,6 +248,22 @@ struct MiniPlayerView: View {
         .glassEffect(.clear.interactive(), in: Self.glassShape)
         .overlay(rimLight)
         .overlay(sheen)
+        .overlay(alignment: .top) {
+            ZStack {
+                WindowDragHandle { active in
+                    dragHandleActive = active
+                }
+                Capsule()
+                    .fill(.white.opacity(0.38))
+                    .frame(width: 34, height: 3)
+                    .opacity(dragHandleActive ? 1 : 0)
+                    .allowsHitTesting(false)
+            }
+            .frame(width: 72, height: 16)
+            .contentShape(Rectangle())
+            .accessibilityLabel("Move mini player")
+            .animation(.easeOut(duration: 0.22), value: dragHandleActive)
+        }
         // Layered shadows: soft ambient + tight contact — reads as a slab
         // floating above the desktop. Kept light, and the margin below must
         // fully contain them or the window edge clips them into a square.
@@ -206,7 +324,7 @@ struct MiniPlayerView: View {
         .buttonStyle(.borderless)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.4)
-        .help(enabled ? label : "Link Pandora for thumbs in Settings")
+        .help(enabled ? label : "Thumbs need a playing Pandora track")
         .accessibilityLabel(label)
     }
 }

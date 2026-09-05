@@ -1,0 +1,41 @@
+name: macOS build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-26, macos-26-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Validate packaging files
+        run: |
+          for script in scripts/*.sh; do zsh -n "$script"; done
+          plutil -lint Resources/Info.plist Resources/Info-vision.plist Resources/*.entitlements
+      - name: Unit tests
+        run: scripts/run_tests.sh
+      - name: Build local release app
+        run: scripts/make_app.sh
+      - name: Install and update in an isolated directory
+        run: |
+          scripts/install_app.sh "$RUNNER_TEMP/SonoGlass Install"
+          scripts/install_app.sh "$RUNNER_TEMP/SonoGlass Install"
+          codesign --verify --strict "$RUNNER_TEMP/SonoGlass Install/SonoGlass.app"
+          test -n "$(find "$RUNNER_TEMP/SonoGlass Install" -maxdepth 1 -name 'SonoGlass-backup-*.zip' -print -quit)"
+      - name: Build sandbox variant
+        run: SANDBOX=1 DIST_DIR=dist/sandbox scripts/make_app.sh
