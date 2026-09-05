@@ -185,13 +185,21 @@ struct AdvancedSettings: View {
 }
 
 struct AboutSettings: View {
+    private var versionLabel: String {
+        guard let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String else {
+            return "Development build"
+        }
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        return build.map { "Version \(version) (\($0))" } ?? "Version \(version)"
+    }
+
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "hifispeaker.2.fill")
                 .font(.system(size: 40))
                 .foregroundStyle(.tint)
             Text("SonoGlass").font(.title2.weight(.semibold))
-            Text("Version 1.0")
+            Text(versionLabel)
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text("Local Sonos control; Pandora feedback through your speaker's service session.")
