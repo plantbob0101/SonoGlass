@@ -51,13 +51,17 @@ final class AppState {
     var miniPlayerVisible = false
 
     let system = SonosSystem()
-    let pandora = PandoraClient()
+    private(set) var pandora = PandoraClient()
     let appleMusic = AppleMusicRatings()
 
     #if os(macOS)
     @ObservationIgnored private var miniPlayer: MiniPlayerController?
     #endif
     @ObservationIgnored private var volumeSendTask: Task<Void, Never>?
+    @ObservationIgnored private var volumeSendID: UUID?
+    @ObservationIgnored private var accountChangeID = UUID()
+    @ObservationIgnored private var favoriteFetches: Set<String> = []
+    @ObservationIgnored private var ratingRequestID: UUID?
     @ObservationIgnored private var toastTask: Task<Void, Never>?
 
     var selectedGroup: ZoneGroup? {
@@ -162,6 +166,8 @@ final class AppState {
     /// Resolves the current Pandora track's backstage page URL (or a search
     /// page as fallback). Shared by the Mac (Safari) and visionOS (in-app web).
     func resolvePandoraSongPageURL() async -> URL? {
+        let title = nowPlaying.title
+        let artist = nowPlaying.artist
         if pandoraConfigured, case let .modern(trackId, _)? = currentTrackRef {
             do {
                 if let url = try await pandora.trackPageURL(pandoraId: trackId) {
@@ -171,7 +177,7 @@ final class AppState {
                 showToast("Pandora lookup failed: \(error)")
             }
         }
-        let query = "\(nowPlaying.title) \(nowPlaying.artist)"
+        let query = "\(title) \(artist)"
             .addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
         return URL(string: "https://www.pandora.com/search/\(query)/all")
     }
@@ -223,10 +229,16 @@ final class AppState {
 
     /// Fetch the server-side favorite state when an Apple Music track appears.
     private func refreshFavoriteState() {
-        guard let songID = currentAppleMusicSongID, favoriteCache[songID] == nil else { return }
+        guard let songID = currentAppleMusicSongID, favoriteCache[songID] == nil,
+              favoriteFetches.insert(songID).inserted else { return }
         Task {
-            if let loved = try? await appleMusic.isFavorite(songID: songID) {
-                if favoriteCache[songID] == nil { favoriteCache[songID] = loved }
+            // An absent rating is a completed lookup, not a reason to repeat
+            // the request on every Sonos position update.
+            do {
+                let loved = try await appleMusic.isFavorite(songID: songID)
+                if favoriteCache[songID] == nil { favoriteCache[songID] = loved ?? false }
+            } catch {
+                // Retry when this track appears again, or on an explicit tap.
             }
         }
     }
@@ -237,7 +249,8 @@ final class AppState {
         if let creds = PandoraKeychain.load() {
             pandoraConfigured = true
             try? PandoraKeychain.save(creds)   // migrate to the iCloud-synced item
-            Task { await pandora.setCredentials(username: creds.username, password: creds.password) }
+            let restoredClient = pandora
+            Task { await restoredClient.setCredentials(username: creds.username, password: creds.password) }
         }
         if let data = PandoraSMAPIKeychain.load(),
            let creds = try? JSONDecoder().decode(SMAPICredentials.self, from: data) {
@@ -247,8 +260,10 @@ final class AppState {
         Task { await consumeUpdates() }
         let defaults = UserDefaults.standard
         let manualIP = defaults.string(forKey: "manualIP")
-        let defaultRoom = defaults.string(forKey: "defaultRoom")
-        Task { await system.start(manualIP: manualIP, preferredRoom: defaultRoom) }
+        let configuredRoom = defaults.string(forKey: "defaultRoom") ?? ""
+        let preferredRoom = configuredRoom.isEmpty
+            ? defaults.string(forKey: "lastUsedRoom") : configuredRoom
+        Task { await system.start(manualIP: manualIP, preferredRoom: preferredRoom) }
         #if os(macOS)
         if defaults.bool(forKey: "showMiniAtLaunch") {
             miniPlayerVisible = true
@@ -269,11 +284,19 @@ final class AppState {
             case .groups(let newGroups, let selectedID):
                 let hadNone = groups.isEmpty
                 groups = newGroups
+                if selectedGroupID != selectedID { cancelPendingVolumes() }
                 selectedGroupID = selectedID
+                if let room = selectedGroup?.coordinator?.roomName {
+                    UserDefaults.standard.set(room, forKey: "lastUsedRoom")
+                }
                 if hadNone && !newGroups.isEmpty {
                     refreshBrowseLists()   // first discovery: load favorites/stations
                 }
             case .nowPlaying(let np):
+                if np.trackURI != nowPlaying.trackURI {
+                    thumbCache.removeAll()
+                    favoriteFetches.removeAll()
+                }
                 nowPlaying = np
                 refreshFavoriteState()
             case .volume(let v, let m):
@@ -313,8 +336,13 @@ final class AppState {
             if let lists = try? await system.browsePlaylists() { playlists = lists }
         }
         if pandoraConfigured {
+            let client = pandora
+            let accountID = accountChangeID
             Task {
-                if let list = try? await pandora.stationList() { stations = list }
+                if let list = try? await client.stationList(),
+                   accountChangeID == accountID, pandoraConfigured {
+                    stations = list
+                }
             }
         }
     }
@@ -356,6 +384,10 @@ final class AppState {
     }
 
     func selectGroup(_ id: String) {
+        guard groups.contains(where: { $0.id == id }), id != selectedGroupID else { return }
+        cancelPendingVolumes()
+        nowPlaying = NowPlayingState()
+        thumbCache.removeAll()
         selectedGroupID = id
         Task { await system.selectGroup(id: id) }
     }
@@ -392,22 +424,52 @@ final class AppState {
 
     /// Debounced live slider updates (≤10 calls/s).
     func volumeChanged(_ value: Double) {
-        volume = value
-        volumeSendTask?.cancel()
-        volumeSendTask = Task {
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            guard !Task.isCancelled else { return }
-            try? await system.setVolume(Int(value))
-            volumeSendTask = nil
-        }
+        volume = min(100, max(0, value))
+        sendVolume(afterDelay: true)
     }
 
     /// Final value on slider release.
     func volumeCommitted() {
+        sendVolume(afterDelay: false)
+    }
+
+    private func sendVolume(afterDelay: Bool) {
+        volumeSendTask?.cancel()
+        guard let groupID = selectedGroup?.id else {
+            volumeSendTask = nil
+            volumeSendID = nil
+            return
+        }
+        let requestID = UUID()
+        let value = Int(volume)
+        volumeSendID = requestID
+        volumeSendTask = Task {
+            if afterDelay { try? await Task.sleep(nanoseconds: 100_000_000) }
+            guard !Task.isCancelled, volumeSendID == requestID,
+                  selectedGroup?.id == groupID else { return }
+            do {
+                try await system.setVolume(value, groupID: groupID)
+            } catch is CancellationError {
+                // Switching rooms invalidates the queued adjustment.
+            } catch {
+                if volumeSendID == requestID { showToast("\(error)") }
+            }
+            // A cancelled request may finish after the next slider movement.
+            // It must not release that newer request's optimistic UI value.
+            if volumeSendID == requestID {
+                volumeSendTask = nil
+                volumeSendID = nil
+            }
+        }
+    }
+
+    private func cancelPendingVolumes() {
         volumeSendTask?.cancel()
         volumeSendTask = nil
-        let value = Int(volume)
-        Task { try? await system.setVolume(value) }
+        volumeSendID = nil
+        for task in memberVolumeTasks.values { task.cancel() }
+        memberVolumeTasks.removeAll()
+        memberVolumeSendIDs.removeAll()
     }
 
     func adjustVolume(by delta: Double) {
@@ -419,23 +481,36 @@ final class AppState {
 
     var memberVolumes: [String: Int] = [:]
     @ObservationIgnored private var memberVolumeTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var memberVolumeSendIDs: [String: UUID] = [:]
 
     func memberVolumeChanged(_ device: SonosDevice, to value: Double) {
-        memberVolumes[device.udn] = Int(value)
-        memberVolumeTasks[device.udn]?.cancel()
-        memberVolumeTasks[device.udn] = Task {
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            guard !Task.isCancelled else { return }
-            try? await system.setMemberVolume(Int(value), device: device)
-            memberVolumeTasks[device.udn] = nil
-        }
+        memberVolumes[device.udn] = Int(min(100, max(0, value)))
+        sendMemberVolume(device, afterDelay: true)
     }
 
     func memberVolumeCommitted(_ device: SonosDevice) {
+        sendMemberVolume(device, afterDelay: false)
+    }
+
+    private func sendMemberVolume(_ device: SonosDevice, afterDelay: Bool) {
         memberVolumeTasks[device.udn]?.cancel()
-        memberVolumeTasks[device.udn] = nil
         guard let value = memberVolumes[device.udn] else { return }
-        Task { try? await system.setMemberVolume(value, device: device) }
+        let requestID = UUID()
+        memberVolumeSendIDs[device.udn] = requestID
+        memberVolumeTasks[device.udn] = Task {
+            if afterDelay { try? await Task.sleep(nanoseconds: 100_000_000) }
+            guard !Task.isCancelled, memberVolumeSendIDs[device.udn] == requestID else { return }
+            do {
+                try await system.setMemberVolume(value, device: device)
+            } catch is CancellationError {
+            } catch {
+                if memberVolumeSendIDs[device.udn] == requestID { showToast("\(error)") }
+            }
+            if memberVolumeSendIDs[device.udn] == requestID {
+                memberVolumeTasks[device.udn] = nil
+                memberVolumeSendIDs[device.udn] = nil
+            }
+        }
     }
 
     func toggleMute() {
@@ -452,25 +527,29 @@ final class AppState {
     func thumbsDown() { rate(positive: false) }
 
     private func rate(positive: Bool) {
-        guard thumbsAvailable else { return }
+        guard thumbsAvailable, let groupID = selectedGroup?.id else { return }
         let key = thumbKey
-        let trackBefore = nowPlaying.trackURI
+        let requestID = UUID()
+        ratingRequestID = requestID
         thumbCache[key] = positive
         Task {
+            guard ratingRequestID == requestID, selectedGroup?.id == groupID,
+                  nowPlaying.trackURI == key else { return }
             do {
                 try await system.rateCurrentTrack(thumbsUp: positive)
                 if !positive {
-                    // Pandora convention: thumbs-down skips. The service usually
-                    // auto-skips; only skip manually if the track didn't change.
-                    try? await Task.sleep(nanoseconds: 1_500_000_000)
-                    await system.pollOnce()
-                    if nowPlaying.trackURI == trackBefore {
-                        try? await system.next()
-                    }
+                    // Check the speaker directly: a UI update from pollOnce
+                    // may still be waiting in the asynchronous update stream.
+                    try await Task.sleep(nanoseconds: 1_500_000_000)
+                    guard ratingRequestID == requestID, selectedGroup?.id == groupID else { return }
+                    _ = try await system.nextIfCurrentTrackMatches(trackURI: key, groupID: groupID)
                 }
+            } catch is CancellationError {
             } catch {
-                thumbCache[key] = nil
-                showToast("\(error)")
+                if ratingRequestID == requestID {
+                    thumbCache[key] = nil
+                    showToast("\(error)")
+                }
             }
         }
     }
@@ -547,28 +626,45 @@ final class AppState {
     // MARK: - Pandora account
 
     func savePandoraCredentials(username: String, password: String) async -> String {
+        let changeID = UUID()
+        accountChangeID = changeID
+        let username = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidate = PandoraClient()
+        await candidate.setCredentials(username: username, password: password)
+        do {
+            try await candidate.verify()
+        } catch {
+            return "\(error)"
+        }
+        guard accountChangeID == changeID else { return "Account change cancelled" }
         do {
             try PandoraKeychain.save(.init(username: username, password: password))
         } catch {
             return "Keychain error: \(error.localizedDescription)"
         }
-        await pandora.setCredentials(username: username, password: password)
+        // Only a verified, saved account replaces the working client. The
+        // candidate retains its authenticated session for the station fetch.
+        let replacedClient = pandora
+        pandora = candidate
+        Task { await replacedClient.clearCredentials(deleteStoredSession: false) }
         pandoraConfigured = true
-        do {
-            try await pandora.verify()
-            refreshBrowseLists()
-            return "Connected to Pandora ✓"
-        } catch {
-            return "\(error)"
-        }
+        stations = []
+        collectedCache.removeAll()
+        refreshBrowseLists()
+        return "Connected to Pandora ✓"
     }
 
     func removePandoraAccount() {
+        accountChangeID = UUID()
         PandoraKeychain.delete()
+        PandoraWebSessionStore.delete()
+        let removedClient = pandora
+        pandora = PandoraClient()
         pandoraConfigured = false
         stations = []
+        collectedCache.removeAll()
         if tab == .stations { tab = .nowPlaying }
-        Task { await pandora.clearCredentials() }
+        Task { await removedClient.clearCredentials(deleteStoredSession: false) }
     }
 
     // MARK: - Mini player

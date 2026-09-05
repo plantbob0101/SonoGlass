@@ -47,6 +47,10 @@ struct Probe {
                 if link.showLinkCode { print("Enter code: \(link.linkCode)") }
                 print("Polling for authorization (Ctrl-C to stop)…\n")
                 let attempts = args.count > 3 ? (Int(args[3]) ?? 60) : 60
+                guard (1...720).contains(attempts) else {
+                    print("Error: attempts must be between 1 and 720.")
+                    return
+                }
                 for attempt in 1...attempts {
                     try? await Task.sleep(nanoseconds: 5_000_000_000)
                     do {

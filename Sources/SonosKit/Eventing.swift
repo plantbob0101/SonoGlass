@@ -10,6 +10,7 @@ public final class EventHTTPServer: @unchecked Sendable {
 
     private let handler: Handler
     private var listener: NWListener?
+    private let listenerLock = NSLock()
     private let queue = DispatchQueue(label: "com.sonoglass.events")
     private var activeConnections = 0
     private static let maxConnections = 32
@@ -22,33 +23,64 @@ public final class EventHTTPServer: @unchecked Sendable {
     /// Starts listening on an ephemeral port; returns the port.
     public func start() async throws -> UInt16 {
         let listener = try NWListener(using: .tcp, on: .any)
-        self.listener = listener
-        return try await withCheckedThrowingContinuation { cont in
-            let resumed = ResumeGuard()
-            listener.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    if resumed.claim() {
-                        cont.resume(returning: listener.port?.rawValue ?? 0)
+        let alreadyStarted = listenerLock.withLock {
+            guard self.listener == nil else { return true }
+            self.listener = listener
+            return false
+        }
+        guard !alreadyStarted else { throw SonosError(message: "Event server is already running") }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { cont in
+                let resumed = ResumeGuard()
+                listener.stateUpdateHandler = { [weak self, weak listener] state in
+                    switch state {
+                    case .ready:
+                        if resumed.claim() {
+                            if let port = listener?.port?.rawValue, port > 0 {
+                                cont.resume(returning: port)
+                            } else {
+                                cont.resume(throwing: SonosError(message: "Event server has no listening port"))
+                            }
+                        }
+                    case .failed(let error):
+                        if let listener {
+                            self?.clearListener(listener)
+                            listener.cancel()
+                        }
+                        if resumed.claim() {
+                            cont.resume(throwing: error)
+                        }
+                    case .cancelled:
+                        if let listener { self?.clearListener(listener) }
+                        if resumed.claim() { cont.resume(throwing: CancellationError()) }
+                    default:
+                        break
                     }
-                case .failed(let error):
-                    if resumed.claim() {
-                        cont.resume(throwing: error)
-                    }
-                default:
-                    break
                 }
+                listener.newConnectionHandler = { [weak self] connection in
+                    guard let self else { connection.cancel(); return }
+                    self.accept(connection: connection)
+                }
+                listener.start(queue: queue)
             }
-            listener.newConnectionHandler = { [weak self] connection in
-                self?.accept(connection: connection)
-            }
-            listener.start(queue: queue)
+        } onCancel: {
+            listener.cancel()
         }
     }
 
     public func stop() {
-        listener?.cancel()
-        listener = nil
+        let current = listenerLock.withLock {
+            let current = listener
+            listener = nil
+            return current
+        }
+        current?.cancel()
+    }
+
+    private func clearListener(_ listener: NWListener) {
+        listenerLock.withLock {
+            if self.listener === listener { self.listener = nil }
+        }
     }
 
     private func accept(connection: NWConnection) {
@@ -226,7 +258,12 @@ public enum GENA {
 
     public static func subscribe(ip: String, path: String, callbackURL: String,
                                  timeout: Int = 3600) async throws -> Subscription {
-        var request = URLRequest(url: URL(string: "http://\(ip):1400\(path)")!)
+        var request = URLRequest(url: try subscriptionURL(ip: ip, path: path))
+        guard let callback = URLComponents(string: callbackURL), callback.scheme == "http",
+              let host = callback.host, SonosAddress.privateIPv4(host) != nil,
+              callback.user == nil, callback.password == nil, callback.fragment == nil else {
+            throw SonosError(message: "Event callback must be a private IPv4 HTTP address")
+        }
         request.httpMethod = "SUBSCRIBE"
         request.setValue("<\(callbackURL)>", forHTTPHeaderField: "CALLBACK")
         request.setValue("upnp:event", forHTTPHeaderField: "NT")
@@ -242,7 +279,7 @@ public enum GENA {
     }
 
     public static func renew(_ sub: Subscription, timeout: Int = 3600) async throws -> Subscription {
-        var request = URLRequest(url: URL(string: "http://\(sub.ip):1400\(sub.path)")!)
+        var request = URLRequest(url: try subscriptionURL(ip: sub.ip, path: sub.path))
         request.httpMethod = "SUBSCRIBE"
         request.setValue(sub.sid, forHTTPHeaderField: "SID")
         request.setValue("Second-\(timeout)", forHTTPHeaderField: "TIMEOUT")
@@ -255,17 +292,39 @@ public enum GENA {
     }
 
     public static func unsubscribe(_ sub: Subscription) async {
-        var request = URLRequest(url: URL(string: "http://\(sub.ip):1400\(sub.path)")!)
+        guard let url = try? subscriptionURL(ip: sub.ip, path: sub.path) else { return }
+        var request = URLRequest(url: url)
         request.httpMethod = "UNSUBSCRIBE"
         request.setValue(sub.sid, forHTTPHeaderField: "SID")
         _ = try? await session.data(for: request)
     }
 
-    private static func parseTimeout(_ header: String?) -> Int? {
-        guard let header else { return nil }
-        if let dash = header.firstIndex(of: "-") {
-            return Int(header[header.index(after: dash)...])
+    static func subscriptionURL(ip: String, path: String) throws -> URL {
+        guard let ip = SonosAddress.privateIPv4(ip), path.hasPrefix("/"),
+              !path.hasPrefix("//"), !path.contains("?"), !path.contains("#"),
+              !path.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+            throw SonosError(message: "Invalid Sonos event subscription address")
         }
-        return nil
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = ip
+        components.port = 1400
+        components.path = path
+        guard let url = components.url else { throw SonosError(message: "Invalid Sonos event path") }
+        return url
+    }
+
+    static func parseTimeout(_ header: String?) -> Int? {
+        guard let header = header?.trimmingCharacters(in: .whitespacesAndNewlines),
+              header.lowercased().hasPrefix("second-"),
+              let seconds = Int(header.dropFirst(7)), seconds > 0 else { return nil }
+        // Limit untrusted server values before scheduling or converting units.
+        return min(seconds, 86_400)
+    }
+
+    static func renewalDelay(timeoutSeconds: Int) -> TimeInterval {
+        // Renew short grants before expiry, and periodically renew "infinite"
+        // grants as well so a player restart cannot strand the subscription.
+        max(0.5, min(Double(timeoutSeconds) / 2, 1800))
     }
 }

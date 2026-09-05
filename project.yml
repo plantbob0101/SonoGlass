@@ -16,6 +16,7 @@ targets:
     scheme: {}
     sources:
       - path: Sources/App
+      - path: Resources/MacAssets.xcassets
     dependencies:
       - package: SonoGlassCore
         products:
@@ -27,8 +28,10 @@ targets:
         PRODUCT_NAME: SonoGlass
         INFOPLIST_FILE: Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
-        CODE_SIGN_ENTITLEMENTS: Resources/SonoGlass-signed.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: Resources/SonoGlass-local.entitlements
         CODE_SIGN_STYLE: Automatic
+        ENABLE_APP_SANDBOX: NO
         ENABLE_HARDENED_RUNTIME: YES
         SWIFT_VERSION: "6.0"
         MACOSX_DEPLOYMENT_TARGET: "26.0"

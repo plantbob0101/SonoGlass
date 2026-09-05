@@ -91,6 +91,17 @@ final class WebViewModel: NSObject, WKNavigationDelegate {
                              didStartProvisionalNavigation navigation: WKNavigation!) {
         Task { @MainActor in self.sync() }
     }
+
+    nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!,
+                             withError error: Error) {
+        Task { @MainActor in self.sync() }
+    }
+
+    nonisolated func webView(_ webView: WKWebView,
+                             didFailProvisionalNavigation navigation: WKNavigation!,
+                             withError error: Error) {
+        Task { @MainActor in self.sync() }
+    }
 }
 
 struct WebViewRepresentable: UIViewRepresentable {

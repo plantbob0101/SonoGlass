@@ -69,10 +69,23 @@ public actor MuseClient {
 
         let task = session.webSocketTask(with: request)
         task.resume()
-        defer { task.cancel(with: .normalClosure, reason: nil) }
+        // URLSession's request timeout does not bound waiting for a message on
+        // an established websocket. Close a silent player explicitly.
+        let deadline = Task {
+            try await Task.sleep(for: .seconds(8))
+            task.cancel(with: .goingAway, reason: nil)
+        }
+        defer {
+            deadline.cancel()
+            task.cancel(with: .normalClosure, reason: nil)
+        }
 
-        try await task.send(.string(message))
-        let reply = try await task.receive()
+        let reply = try await withTaskCancellationHandler {
+            try await task.send(.string(message))
+            return try await task.receive()
+        } onCancel: {
+            task.cancel(with: .goingAway, reason: nil)
+        }
 
         let text: String
         switch reply {

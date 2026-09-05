@@ -154,3 +154,21 @@ mode) — Pandora serves the full desktop site inside SonoGlass. Login persists
 in the default website data store. Also: visionOS keeps stale app processes
 alive behind open windows — always close/reopen after installing a build
 (diagnosable via the build number in ⚙️ → Diagnostics).
+
+## 2026-09-04 — 1.1: repository audit and installation on another Mac
+
+- Finalized icon assets and the fading, nonactivating mini-player drag handle;
+  recovered saved windows when display arrangements change.
+- Replaced machine-specific SDK paths with selected-toolchain discovery. Added a
+  signature-verified installer with existing-location detection, ZIP backups,
+  replacement rollback, and clear fresh-Mac/update instructions.
+- Audited and fixed room-switch/shutdown races, delayed controls, subscription
+  renewal bounds, listener cancellation, and websocket deadlines.
+- Made Pandora account replacement transactional, scoped cached sessions to the
+  account, and blocked stale authentication/feedback retries after account changes.
+- Fixed repeated/background Apple Music authorization, last-used room restoration,
+  diagnostic failures, and visionOS browser loading failures.
+- Expanded the regression suite from 32 to 46 tests and added Apple Silicon/Intel
+  macOS CI, including local/sandbox builds and installation/update checks.
+- macOS version 1.1 (2); visionOS version 1.1 (8). See `docs/AUDIT.md` for findings,
+  validation evidence, and the device acceptance checklist.

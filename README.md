@@ -6,21 +6,19 @@
 ![swift](https://img.shields.io/badge/Swift-6.0-orange)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
-Controls Sonos speakers over the **local network only** (UPnP/SOAP — no Sonos
-account, no Sonos cloud API), with the feature no shipping third-party Mac
-controller has: **working Pandora thumbs up / down**. Plus a floating glass
+Controls Sonos speakers over the **local network** (UPnP/SOAP — no Sonos
+account or Sonos cloud API), including **Pandora thumbs up / down**. Plus a floating glass
 mini player, whole-house grouping with per-room volume, Sonos
 Favorites/Playlists/Stations browsing, one-tap **Apple Music Favorites**, and a
 **Vision Pro** app.
 
-Favorites live on the speakers; Pandora stations use your Pandora credentials
-(stored only in the Keychain). No Sonos login exists anywhere in this app.
+Favorites live on the speakers. Pandora station browsing uses your Pandora
+credentials and contacts Pandora over HTTPS; Apple Music features contact Apple.
+Credentials and sessions are stored in Keychain and may sync through iCloud
+Keychain. No Sonos login is required.
 
-> **Why it exists:** the official Sonos desktop app was abandoned, and no Mac
-> controller relays Pandora thumbs to your account. This one does — by asking
-> the *player* to rate through its own service session (see
-> [`CHANGELOG.md`](CHANGELOG.md) for the full protocol reverse-engineering
-> story, dead ends included).
+> Built for a native menu-bar player with Pandora rating controls. See
+> [`CHANGELOG.md`](CHANGELOG.md) for the protocol investigation and development history.
 
 <p align="center">
   <img src="docs/images/popover.png" width="420" alt="SonoGlass menu bar popover: now playing with Pandora thumbs, Apple Music funnel buttons, group volume with per-room trims">
@@ -47,49 +45,94 @@ Not affiliated with Sonos, Pandora, or Apple. Uses documented-but-unofficial
 local protocols; a firmware or API change could break pieces of it (the
 `pandora-probe` / `sonoglass-diag` CLIs exist to diagnose exactly that).
 
-## Building
+## Install on another Mac
 
-No Xcode required — Command Line Tools are enough.
+Requires **macOS 26 or later**, a supported Apple Silicon or Intel Mac, and
+**Xcode 26+ or Command Line Tools 26+**. Install the tools first (for CLT, run
+`xcode-select --install`). A developer account is **not** needed for Sonos
+playback, grouping, Pandora thumbs, or Pandora station browsing.
 
 ```sh
-scripts/make_app.sh            # release build → dist/SonoGlass.app (sandboxed, ad-hoc signed)
-open dist/SonoGlass.app
+git clone https://github.com/plantbob0101/SonoGlass.git
+cd SonoGlass
+scripts/run_tests.sh
+scripts/make_app.sh
+scripts/install_app.sh
 ```
 
-Release artifacts use Apple's hardened runtime. The team-signed build also
-refuses to copy a bundle into `dist/` if it contains the debugger entitlement
-(`get-task-allow`) or is missing runtime hardening.
-
-Variants:
+Open `SonoGlass.app` from the location printed by the installer. On a new Mac
+this is `~/Applications`; the installer reuses an existing installation in
+`~/Applications` or `/Applications` when there is one. To choose explicitly:
 
 ```sh
-SANDBOX=0 scripts/make_app.sh  # build without App Sandbox (try this if discovery fails)
+scripts/install_app.sh /Applications
+open /Applications/SonoGlass.app
+```
+
+Quit the running app before updating. The installer verifies the signature,
+refuses to overwrite unrelated files, and saves the previous app in a ZIP.
+Install one copy per Mac and launch that installed copy; `dist/` is build output.
+Local builds are signed on the Mac where they are built. They are not notarized
+prebuilt downloads, so build again on each Mac instead of copying a development
+signature or someone else's signing credentials.
+
+**First launch:**
+
+1. Open the speaker icon in the menu bar. SonoGlass has no Dock icon.
+2. Allow **Local Network** access. If discovery is blocked, enable SonoGlass in
+   System Settings → Privacy & Security → Local Network, then click **Retry**.
+3. Keep the Mac and speakers on a network that permits communication between
+   devices. If multicast discovery fails, enter a speaker's **private IPv4
+   address** in Settings → Advanced. One reachable speaker supplies the topology.
+4. Use the pin button to show the mini player. Drag its top-center handle; it
+   appears on hover and fades when idle. Settings controls whether it opens at launch.
+5. Check room selection, playback, volume, and mini-player dragging on that Mac.
+   Each Mac has its own network permissions and window positions.
+
+The default build uses the hardened runtime **without App Sandbox**, matching
+this app's direct local-network control and callback listener. Sandbox is opt-in:
+`SANDBOX=1 scripts/make_app.sh`. Apple Music Favorites requires the separate
+team-signed setup below; the ordinary local build supports core Sonos controls.
+
+## Updating an existing clone
+
+```sh
+cd /path/to/SonoGlass
+git switch main
+git pull --ff-only
+scripts/run_tests.sh
+scripts/make_app.sh
+# Quit SonoGlass, then:
+scripts/install_app.sh
+```
+
+If Git reports local changes, preserve them before updating. These commands do
+not reset your checkout, erase settings, or migrate another Mac's credentials.
+
+## Build options and checks
+
+```sh
 CONFIG=debug scripts/make_app.sh
-scripts/run_tests.sh           # unit tests (22 tests)
-swift run sonoglass-diag [ip]  # CLI protocol smoke test against your real speakers
+SANDBOX=1 scripts/make_app.sh
+BUILD_DIR=/tmp/sonoglass-build DIST_DIR=/tmp/sonoglass-dist scripts/make_app.sh
+scripts/run_tests.sh
+swift run sonoglass-diag [private-speaker-ip]
 ```
 
-**Toolchain note:** the build pins the **macOS 26.5 SDK**
-(`/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk`). The macOS 27 beta SDK
-turns SwiftUI property wrappers into compiler macros whose plugins only ship inside
-full Xcode, so plain CLT builds fail against it. If you install Xcode 27 later you can
-drop the pin. `scripts/run_tests.sh` uses SwiftPM's native build system and passes
-explicit framework/plugin/rpath flags for CLT's out-of-the-way `Testing.framework`.
+Scripts use the selected Xcode/CLT and discover its SDK. `DEVELOPER_DIR` and `SDK`
+can be set for one command; the scripts never change the system selection. If a
+beta CLT lacks the SwiftUI compiler plugins, use a matching stable Xcode/CLT
+installation. Dependencies are recorded in `Package.resolved`.
 
-## First launch
-
-1. The menu bar shows a speaker icon (no Dock icon — it's an `LSUIElement` app).
-2. macOS asks for **Local Network** permission on first discovery. If you declined it:
-   System Settings → Privacy & Security → Local Network → enable SonoGlass, then
-   hit **Retry** in the popover.
-3. If multicast discovery still finds nothing (unusual networks, VLANs), enter one
-   speaker's IP under Settings → Advanced — one reachable player bootstraps the whole
-   household, because topology is read from the player itself.
+GitHub Actions builds and tests the app on Apple Silicon and Intel, checks the
+local and sandbox variants, and exercises installation/update in a temporary
+folder. Hardware checks are separate: see [the audit and acceptance record](docs/AUDIT.md).
 
 ## Pandora
 
 - Settings → Pandora: e-mail + password, **Verify & Save** does a live login and
-  reports Pandora's actual error message on failure.
+  reports Pandora's error on failure. A failed verification leaves the saved
+  account intact.
 - Credentials are stored in the **login Keychain** (`SonoGlass.Pandora`), never in
   UserDefaults. "Remove account" deletes them.
 ### Thumbs (how they actually reach Pandora)
@@ -170,7 +213,7 @@ Sources/PandoraKit/ Pandora JSON API v5 client, Blowfish crypto, token parser, K
 Sources/DiagCLI/    sonoglass-diag — protocol smoke test CLI
 Tests/              unit tests (token parsing, crypto, DIDL, topology, classifier)
 Resources/          Info.plist, entitlements
-scripts/            make_app.sh, run_tests.sh
+scripts/            build, test, toolchain selection, and safe local installation
 ```
 
 ## Contributors

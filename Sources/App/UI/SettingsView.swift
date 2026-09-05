@@ -52,10 +52,12 @@ struct GeneralSettings: View {
 
             Picker("Default room", selection: $defaultRoom) {
                 Text("Last used").tag("")
-                ForEach(appState.groups) { group in
-                    if let room = group.coordinator?.roomName {
-                        Text(room).tag(room)
-                    }
+                ForEach(appState.allRooms) { room in
+                    Text(room.roomName).tag(room.roomName)
+                }
+                if !defaultRoom.isEmpty,
+                   !appState.allRooms.contains(where: { $0.roomName == defaultRoom }) {
+                    Text("\(defaultRoom) (unavailable)").tag(defaultRoom)
                 }
             }
         }
@@ -189,7 +191,7 @@ struct AboutSettings: View {
             Text("Version 1.0")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("Local control via UPnP; Pandora feedback via Pandora's JSON API.")
+            Text("Local Sonos control; Pandora feedback through your speaker's service session.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

@@ -55,6 +55,10 @@ public struct SOAPClient: Sendable {
         session = URLSession(configuration: config)
     }
 
+    init(session: URLSession) {
+        self.session = session
+    }
+
     /// Performs a UPnP SOAP action and returns the first-level child elements
     /// of the action response, flattened to name → text.
     /// Args are ordered (Name, value) pairs; values are XML-escaped here.
