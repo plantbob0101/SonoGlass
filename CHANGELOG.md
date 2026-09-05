@@ -164,6 +164,8 @@ alive behind open windows — always close/reopen after installing a build
   replacement rollback, and clear fresh-Mac/update instructions.
 - Audited and fixed room-switch/shutdown races, delayed controls, subscription
   renewal bounds, listener cancellation, and websocket deadlines.
+- Kept startup and Settings responsive while Keychain authorization is pending,
+  with background read-only account restoration.
 - Made Pandora account replacement transactional, scoped cached sessions to the
   account, and blocked stale authentication/feedback retries after account changes.
 - Fixed repeated/background Apple Music authorization, last-used room restoration,

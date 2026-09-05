@@ -16,6 +16,7 @@ in local work or a handoff branch are included in the main release work.
 | Controls | Delayed volume changes or thumbs-down fallback could affect the wrong room/track. | Capture the target room and recheck the live track before fallback skip. |
 | Eventing | Cancelled startup could strand a continuation; malformed grants could overflow renewal scheduling. | Handle cancellation/ownership, validate private event endpoints, and bound renewal intervals. |
 | Websocket | An established but silent connection could wait indefinitely. | Bound command lifetime and propagate cancellation. |
+| Startup | Synchronous Keychain reads could freeze a newly signed app before its UI appeared. | Restore accounts in background tasks, guard against stale restoration, and keep Settings free of synchronous reads. |
 | Pandora login | Failed verification replaced working credentials. | Verify a candidate before committing it to Keychain and app state. |
 | Pandora sessions | Cached web sessions were not tied to the configured account; stale failures could retry for a replacement account. | Bind caches to usernames, discard stale authentication results, and guard retries against account changes. |
 | Pandora diagnostics | Feedback success depended on JSON whitespace and logged full response bodies. | Parse the response structure, escape GraphQL strings, omit raw public logs, and actually reauthenticate expired collection requests. |
@@ -31,6 +32,11 @@ in local work or a handoff branch are included in the main release work.
   room-switch/shutdown races, delayed controls, session ownership and stale retry.
   Test transports are isolated and do not access the user's Keychain or send
   speaker commands. Listener tests use an ephemeral local port.
+- A clean clone from GitHub built a complete local Release app.
+- Read-only LAN diagnostics discovered nine devices and read transport, service,
+  favorites, and playlist responses (eight favorites). No playback was changed.
+- Listener cancellation was additionally checked with repeated suite runs and
+  500 start/cancel/stop/retry races.
 - Local Release and sandbox builds, strict code-signature verification, hardened
   runtime, packaged icon/resources, version metadata, shell/plist validation.
 - Installation/update and ZIP integrity in temporary folders; actual running-app

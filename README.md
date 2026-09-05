@@ -3,7 +3,7 @@
 **A native macOS + visionOS controller for Sonos — the one with Pandora thumbs.**
 
 ![platform](https://img.shields.io/badge/platform-macOS%2026%20%7C%20visionOS%2026-blue)
-![swift](https://img.shields.io/badge/Swift-6.0-orange)
+![swift](https://img.shields.io/badge/Swift-6.2-orange)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 Controls Sonos speakers over the **local network** (UPnP/SOAP — no Sonos

@@ -10,6 +10,7 @@ public final class EventHTTPServer: @unchecked Sendable {
 
     private let handler: Handler
     private var listener: NWListener?
+    private var pendingStartup: StartupCompletion?
     private let listenerLock = NSLock()
     private let queue = DispatchQueue(label: "com.sonoglass.events")
     private var activeConnections = 0
@@ -22,37 +23,42 @@ public final class EventHTTPServer: @unchecked Sendable {
 
     /// Starts listening on an ephemeral port; returns the port.
     public func start() async throws -> UInt16 {
+        try Task.checkCancellation()
         let listener = try NWListener(using: .tcp, on: .any)
+        let startup = StartupCompletion()
         let alreadyStarted = listenerLock.withLock {
             guard self.listener == nil else { return true }
             self.listener = listener
+            pendingStartup = startup
             return false
         }
         guard !alreadyStarted else { throw SonosError(message: "Event server is already running") }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { cont in
-                let resumed = ResumeGuard()
+                // Cancellation can happen before this closure runs. Installing
+                // into shared state immediately delivers any stored result.
+                startup.install(cont)
                 listener.stateUpdateHandler = { [weak self, weak listener] state in
                     switch state {
                     case .ready:
-                        if resumed.claim() {
-                            if let port = listener?.port?.rawValue, port > 0 {
-                                cont.resume(returning: port)
-                            } else {
-                                cont.resume(throwing: SonosError(message: "Event server has no listening port"))
+                        if let port = listener?.port?.rawValue, port > 0 {
+                            startup.complete(.success(port))
+                        } else {
+                            if let listener {
+                                self?.clearListener(listener)
+                                listener.cancel()
                             }
+                            startup.complete(.failure(SonosError(message: "Event server has no listening port")))
                         }
                     case .failed(let error):
                         if let listener {
                             self?.clearListener(listener)
                             listener.cancel()
                         }
-                        if resumed.claim() {
-                            cont.resume(throwing: error)
-                        }
+                        startup.complete(.failure(error))
                     case .cancelled:
                         if let listener { self?.clearListener(listener) }
-                        if resumed.claim() { cont.resume(throwing: CancellationError()) }
+                        startup.complete(.failure(CancellationError()))
                     default:
                         break
                     }
@@ -61,25 +67,35 @@ public final class EventHTTPServer: @unchecked Sendable {
                     guard let self else { connection.cancel(); return }
                     self.accept(connection: connection)
                 }
-                listener.start(queue: queue)
+                if !startup.isCompleted { listener.start(queue: queue) }
             }
         } onCancel: {
+            // NWListener need not deliver a state callback when it is cancelled
+            // before start/handler installation; resume independently of it.
+            self.clearListener(listener)
             listener.cancel()
+            startup.complete(.failure(CancellationError()))
         }
     }
 
     public func stop() {
-        let current = listenerLock.withLock {
+        let (current, startup) = listenerLock.withLock {
             let current = listener
+            let startup = pendingStartup
             listener = nil
-            return current
+            pendingStartup = nil
+            return (current, startup)
         }
         current?.cancel()
+        startup?.complete(.failure(CancellationError()))
     }
 
     private func clearListener(_ listener: NWListener) {
         listenerLock.withLock {
-            if self.listener === listener { self.listener = nil }
+            if self.listener === listener {
+                self.listener = nil
+                pendingStartup = nil
+            }
         }
     }
 
@@ -145,14 +161,34 @@ public final class EventHTTPServer: @unchecked Sendable {
         })
     }
 
-    private final class ResumeGuard: @unchecked Sendable {
+    /// Stores completion even if cancellation wins the race to install the
+    /// continuation. Completion and installation each resume outside the lock.
+    private final class StartupCompletion: @unchecked Sendable {
         private let lock = NSLock()
-        private var done = false
-        func claim() -> Bool {
-            lock.lock(); defer { lock.unlock() }
-            if done { return false }
-            done = true
-            return true
+        private var result: Result<UInt16, Error>?
+        private var continuation: CheckedContinuation<UInt16, Error>?
+
+        var isCompleted: Bool { lock.withLock { result != nil } }
+
+        func install(_ continuation: CheckedContinuation<UInt16, Error>) {
+            lock.lock()
+            if let result {
+                lock.unlock()
+                continuation.resume(with: result)
+                return
+            }
+            self.continuation = continuation
+            lock.unlock()
+        }
+
+        func complete(_ result: Result<UInt16, Error>) {
+            lock.lock()
+            guard self.result == nil else { lock.unlock(); return }
+            self.result = result
+            let continuation = self.continuation
+            self.continuation = nil
+            lock.unlock()
+            continuation?.resume(with: result)
         }
     }
 

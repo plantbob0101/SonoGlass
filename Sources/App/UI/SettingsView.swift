@@ -68,7 +68,8 @@ struct GeneralSettings: View {
 
 struct PandoraSettings: View {
     @Environment(AppState.self) private var appState
-    @State private var email = PandoraKeychainMirror.username
+    @State private var email = ""
+    @State private var emailEdited = false
     @State private var password = ""
     @State private var status = ""
     @State private var busy = false
@@ -76,7 +77,10 @@ struct PandoraSettings: View {
     var body: some View {
         Form {
             Section {
-                TextField("Email", text: $email)
+                TextField("Email", text: Binding(
+                    get: { email },
+                    set: { email = $0; emailEdited = true }
+                ))
                     .textContentType(.username)
                 SecureField("Password", text: $password)
 
@@ -98,6 +102,7 @@ struct PandoraSettings: View {
                         Button("Remove account", role: .destructive) {
                             appState.removePandoraAccount()
                             email = ""
+                            emailEdited = false
                             password = ""
                             status = "Account removed"
                         }
@@ -126,6 +131,12 @@ struct PandoraSettings: View {
         }
         .formStyle(.grouped)
         .padding(.vertical, 8)
+        .onAppear {
+            if !emailEdited { email = appState.pandoraUsername }
+        }
+        .onChange(of: appState.pandoraUsername) { _, username in
+            if !emailEdited { email = username }
+        }
     }
 
     private func verify() {
@@ -137,14 +148,6 @@ struct PandoraSettings: View {
             status = await appState.savePandoraCredentials(username: user, password: pass)
             busy = false
         }
-    }
-}
-
-/// Small shim so the settings pane can prefill the stored e-mail without
-/// keeping the password in memory.
-enum PandoraKeychainMirror {
-    static var username: String {
-        PandoraKit.PandoraKeychain.load()?.username ?? ""
     }
 }
 

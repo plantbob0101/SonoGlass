@@ -29,6 +29,7 @@ final class AppState {
 
     // Pandora state
     var pandoraConfigured = false
+    var pandoraUsername = ""
     var stations: [PandoraStation] = []
     /// Optimistic per-trackToken feedback cache (cleared when the track changes).
     var thumbCache: [String: Bool] = [:]
@@ -60,6 +61,7 @@ final class AppState {
     @ObservationIgnored private var volumeSendTask: Task<Void, Never>?
     @ObservationIgnored private var volumeSendID: UUID?
     @ObservationIgnored private var accountChangeID = UUID()
+    @ObservationIgnored private var smapiChangeID = UUID()
     @ObservationIgnored private var favoriteFetches: Set<String> = []
     @ObservationIgnored private var ratingRequestID: UUID?
     @ObservationIgnored private var toastTask: Task<Void, Never>?
@@ -246,17 +248,7 @@ final class AppState {
     // MARK: - Lifecycle
 
     init() {
-        if let creds = PandoraKeychain.load() {
-            pandoraConfigured = true
-            try? PandoraKeychain.save(creds)   // migrate to the iCloud-synced item
-            let restoredClient = pandora
-            Task { await restoredClient.setCredentials(username: creds.username, password: creds.password) }
-        }
-        if let data = PandoraSMAPIKeychain.load(),
-           let creds = try? JSONDecoder().decode(SMAPICredentials.self, from: data) {
-            smapiCredentials = creds
-            smapiLinked = true
-        }
+        restoreSavedAccounts()
         Task { await consumeUpdates() }
         let defaults = UserDefaults.standard
         let manualIP = defaults.string(forKey: "manualIP")
@@ -274,6 +266,39 @@ final class AppState {
             }
         }
         #endif
+    }
+
+    /// Security.framework can wait for a Keychain authorization dialog. Keep
+    /// those read-only lookups off the main actor so first launch stays usable.
+    private func restoreSavedAccounts() {
+        let accountID = accountChangeID
+        Task { [weak self] in
+            let credentials = await Task.detached(priority: .utility) {
+                PandoraKeychain.load()
+            }.value
+            guard let self, self.accountChangeID == accountID,
+                  let credentials else { return }
+            let restoredClient = PandoraClient()
+            await restoredClient.setCredentials(username: credentials.username,
+                                                password: credentials.password)
+            // A user may save or remove an account while this task is waiting.
+            guard self.accountChangeID == accountID else { return }
+            self.pandora = restoredClient
+            self.pandoraConfigured = true
+            self.pandoraUsername = credentials.username
+            self.refreshBrowseLists()
+        }
+
+        let linkID = smapiChangeID
+        Task { [weak self] in
+            let data = await Task.detached(priority: .utility) {
+                PandoraSMAPIKeychain.load()
+            }.value
+            guard let self, self.smapiChangeID == linkID, let data,
+                  let credentials = try? JSONDecoder().decode(SMAPICredentials.self, from: data) else { return }
+            self.smapiCredentials = credentials
+            self.smapiLinked = true
+        }
     }
 
     private func consumeUpdates() async {
@@ -558,6 +583,7 @@ final class AppState {
 
     /// Starts the AppLink flow; returns the URL the user must open to authorize.
     func beginPandoraLink() async -> String {
+        smapiChangeID = UUID()
         linkInProgress = true
         do {
             let link = try await system.smapiBeginLink()
@@ -597,6 +623,7 @@ final class AppState {
     }
 
     func unlinkPandoraThumbs() {
+        smapiChangeID = UUID()
         PandoraSMAPIKeychain.delete()
         smapiCredentials = nil
         smapiLinked = false
@@ -648,6 +675,7 @@ final class AppState {
         pandora = candidate
         Task { await replacedClient.clearCredentials(deleteStoredSession: false) }
         pandoraConfigured = true
+        pandoraUsername = username
         stations = []
         collectedCache.removeAll()
         refreshBrowseLists()
@@ -661,6 +689,7 @@ final class AppState {
         let removedClient = pandora
         pandora = PandoraClient()
         pandoraConfigured = false
+        pandoraUsername = ""
         stations = []
         collectedCache.removeAll()
         if tab == .stations { tab = .nowPlaying }
