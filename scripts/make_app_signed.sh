@@ -1,7 +1,9 @@
 #!/bin/zsh
 # Optional team-signed build for MusicKit (Apple Music favorites).
-#   TEAM=ABCDE12345 scripts/make_app_signed.sh
-#   SANDBOX=1 TEAM=ABCDE12345 scripts/make_app_signed.sh
+#   TEAM=<team-id> scripts/make_app_signed.sh  # existing signing assets only
+#   SIGNING_STYLE=Manual TEAM=<team-id> SIGNING_IDENTITY=<identity> \
+#     PROFILE=<profile-name-or-uuid> scripts/make_app_signed.sh
+# See docs/MAC_MIGRATION.md for provisioning and explicit automatic-signing opt-ins.
 # Requires full Xcode, XcodeGen, and an account/profile for com.sonoglass.app
 # with the MusicKit service enabled at developer.apple.com.
 set -euo pipefail
@@ -11,22 +13,43 @@ SANDBOX="${SANDBOX:-0}"
 DERIVED_DATA="${DERIVED_DATA:-.build/xcode}"
 DIST_DIR="${DIST_DIR:-dist}"
 TEAM="${TEAM:-${DEVELOPMENT_TEAM:-}}"
+SIGNING_STYLE="${SIGNING_STYLE:-Automatic}"
+SIGNING_IDENTITY="${SIGNING_IDENTITY:-Apple Development}"
+PROFILE="${PROFILE:-}"
+ALLOW_PROVISIONING_UPDATES="${ALLOW_PROVISIONING_UPDATES:-0}"
+ALLOW_DEVICE_REGISTRATION="${ALLOW_DEVICE_REGISTRATION:-0}"
 [[ "$SANDBOX" == 0 || "$SANDBOX" == 1 ]] || { print -u2 'ERROR: SANDBOX must be 0 or 1.'; exit 1; }
+[[ -n "$TEAM" ]] || { print -u2 'ERROR: Set TEAM to your Apple Developer team ID.'; exit 1; }
+[[ "$SIGNING_STYLE" == Manual || "$SIGNING_STYLE" == Automatic ]] || { print -u2 'ERROR: SIGNING_STYLE must be Manual or Automatic.'; exit 1; }
+[[ "$ALLOW_PROVISIONING_UPDATES" == 0 || "$ALLOW_PROVISIONING_UPDATES" == 1 ]] || { print -u2 'ERROR: ALLOW_PROVISIONING_UPDATES must be 0 or 1.'; exit 1; }
+[[ "$ALLOW_DEVICE_REGISTRATION" == 0 || "$ALLOW_DEVICE_REGISTRATION" == 1 ]] || { print -u2 'ERROR: ALLOW_DEVICE_REGISTRATION must be 0 or 1.'; exit 1; }
+if [[ "$SIGNING_STYLE" == Manual ]]; then
+  [[ -n "$PROFILE" ]] || { print -u2 'ERROR: Manual signing requires PROFILE (installed profile name or UUID).'; exit 1; }
+  [[ "$ALLOW_PROVISIONING_UPDATES" == 0 && "$ALLOW_DEVICE_REGISTRATION" == 0 ]] || { print -u2 'ERROR: Manual signing uses existing assets; automatic provisioning flags are not allowed.'; exit 1; }
+elif [[ -n "$PROFILE" ]]; then
+  print -u2 'ERROR: Set SIGNING_STYLE=Manual when selecting PROFILE.'
+  exit 1
+fi
+if [[ "$ALLOW_DEVICE_REGISTRATION" == 1 && "$ALLOW_PROVISIONING_UPDATES" != 1 ]]; then
+  print -u2 'ERROR: Device registration requires ALLOW_PROVISIONING_UPDATES=1 too.'
+  exit 1
+fi
 command -v xcodegen >/dev/null || { print -u2 'ERROR: Install XcodeGen first (brew install xcodegen).'; exit 1; }
 xcodebuild -version >/dev/null || { print -u2 'ERROR: Select a licensed full Xcode installation using DEVELOPER_DIR.'; exit 1; }
 xcodegen
 
 ARGS=(-project SonoGlass.xcodeproj -scheme SonoGlass -configuration Release
       -destination 'platform=macOS' -derivedDataPath "$DERIVED_DATA"
-      -allowProvisioningUpdates -allowProvisioningDeviceRegistration build)
-if [[ -n "$TEAM" ]]; then
-  ARGS+=("DEVELOPMENT_TEAM=$TEAM")
-fi
+      "SONOGLASS_TEAM=$TEAM" "SONOGLASS_SIGNING_STYLE=$SIGNING_STYLE"
+      "SONOGLASS_SIGNING_IDENTITY=$SIGNING_IDENTITY" "SONOGLASS_PROFILE=$PROFILE")
+[[ "$ALLOW_PROVISIONING_UPDATES" == 0 ]] || ARGS+=(-allowProvisioningUpdates)
+[[ "$ALLOW_DEVICE_REGISTRATION" == 0 ]] || ARGS+=(-allowProvisioningDeviceRegistration)
 if [[ "$SANDBOX" == 1 ]]; then
-  ARGS+=(CODE_SIGN_ENTITLEMENTS=Resources/SonoGlass-signed.entitlements ENABLE_APP_SANDBOX=YES)
+  ARGS+=(SONOGLASS_ENTITLEMENTS=Resources/SonoGlass-signed.entitlements SONOGLASS_SANDBOX=YES)
 else
-  ARGS+=(CODE_SIGN_ENTITLEMENTS=Resources/SonoGlass-local.entitlements ENABLE_APP_SANDBOX=NO)
+  ARGS+=(SONOGLASS_ENTITLEMENTS=Resources/SonoGlass-local.entitlements SONOGLASS_SANDBOX=NO)
 fi
+ARGS+=(build)
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 if ! xcodebuild "${ARGS[@]}" > "$WORK/build.log" 2>&1; then

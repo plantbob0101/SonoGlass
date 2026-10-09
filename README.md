@@ -227,11 +227,18 @@ scripts/            build, test, toolchain selection, and safe local installatio
 When an Apple Music track plays (`x-sonos-http:song%3a{id}.mp4?sid=204`), a ☆ star
 appears in the popover and mini player. It toggles the song's **Favorite** state via
 MusicKit (`PUT/DELETE /v1/me/ratings/songs/{id}`), prefilled from the current rating.
-Requires the **team-signed build**: `TEAM=<teamid> scripts/make_app_signed.sh`
-(XcodeGen + xcodebuild with automatic signing; the App ID `com.sonoglass.app` must
-have the MusicKit App Service enabled in the developer portal, and the entitlements
-force an embedded provisioning profile — MusicKit refuses ad-hoc builds).
-First use shows Apple's one-time Media & Apple Music permission dialog.
+Requires the **team-signed build** with a MusicKit-enabled App ID and a development
+profile covering the destination Mac and its signing certificate. Start with the
+[Mac migration and development-signing guide](docs/MAC_MIGRATION.md), including
+account agreements, identity trust, device/profile verification, backup/rollback,
+and actual installed-app checks.
+
+`TEAM=<teamid> scripts/make_app_signed.sh` uses automatic signing with existing
+assets; online provisioning and device registration require explicit opt-ins.
+For a specific installed profile use `SIGNING_STYLE=Manual`, `SIGNING_IDENTITY`,
+and `PROFILE` as documented in the guide. First explicit Apple Music use may show
+Apple's Media & Apple Music permission dialog. Keep Favorites support by using
+this provisioned build when migrating, rather than the ordinary ad-hoc build.
 
 ## Phase 2 — not built yet (deliberately)
 
